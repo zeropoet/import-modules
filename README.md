@@ -2,6 +2,10 @@
 
 A Next.js host shell that renders selectable repo "faces" and previews linked GitHub Pages apps.
 
+## Live URL
+
+`https://zeropoet.github.io/lotus-map/`
+
 ## Local development
 
 ```bash

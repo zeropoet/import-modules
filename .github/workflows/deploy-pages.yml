@@ -17,6 +17,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_APP_SOURCE_MODE: github
+      NEXT_PUBLIC_GITHUB_OWNER: zeropoet
+      NEXT_PUBLIC_SPAWN_RATIO_PERCENT: 100
     steps:
       - uses: actions/checkout@v4
 

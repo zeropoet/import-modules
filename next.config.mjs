@@ -1,4 +1,4 @@
-const repo = "lotusMap";
+const repo = "lotus-map";
 const isGithubActions = process.env.GITHUB_ACTIONS === "true";
 
 /** @type {import('next').NextConfig} */
