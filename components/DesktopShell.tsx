@@ -263,6 +263,72 @@ function anchoredSpawnVelocity(side: "top" | "right" | "bottom" | "left") {
   return { vx: settle, vy: drift }
 }
 
+function resolveWindowPairToEdgeContact(
+  a: WindowItem,
+  b: WindowItem,
+  aActive: boolean,
+  bActive: boolean
+) {
+  const aOutsetX = a.width * RED_BORDER_OUTSET_RATIO
+  const aOutsetY = a.height * RED_BORDER_OUTSET_RATIO
+  const bOutsetX = b.width * RED_BORDER_OUTSET_RATIO
+  const bOutsetY = b.height * RED_BORDER_OUTSET_RATIO
+  const ax1 = a.x - aOutsetX
+  const ay1 = a.y - aOutsetY
+  const ax2 = a.x + a.width + aOutsetX
+  const ay2 = a.y + a.height + aOutsetY
+  const bx1 = b.x - bOutsetX
+  const by1 = b.y - bOutsetY
+  const bx2 = b.x + b.width + bOutsetX
+  const by2 = b.y + b.height + bOutsetY
+  const overlapX = Math.min(ax2, bx2) - Math.max(ax1, bx1)
+  const overlapY = Math.min(ay2, by2) - Math.max(ay1, by1)
+
+  if (overlapX <= 0 || overlapY <= 0) {
+    return
+  }
+
+  const acx = a.x + a.width / 2
+  const acy = a.y + a.height / 2
+  const bcx = b.x + b.width / 2
+  const bcy = b.y + b.height / 2
+  const separateOnX = overlapX < overlapY || (overlapX === overlapY && Math.abs(acx - bcx) >= Math.abs(acy - bcy))
+  const edgeGap = 0.5
+
+  if (separateOnX) {
+    const shift = overlapX + edgeGap
+    const dirA = acx <= bcx ? -1 : 1
+    if (aActive && !bActive) {
+      b.x -= dirA * shift
+      b.vx = 0
+    } else if (!aActive && bActive) {
+      a.x += dirA * shift
+      a.vx = 0
+    } else {
+      a.x += dirA * (shift * 0.5)
+      b.x -= dirA * (shift * 0.5)
+      a.vx = 0
+      b.vx = 0
+    }
+    return
+  }
+
+  const shift = overlapY + edgeGap
+  const dirA = acy <= bcy ? -1 : 1
+  if (aActive && !bActive) {
+    b.y -= dirA * shift
+    b.vy = 0
+  } else if (!aActive && bActive) {
+    a.y += dirA * shift
+    a.vy = 0
+  } else {
+    a.y += dirA * (shift * 0.5)
+    b.y -= dirA * (shift * 0.5)
+    a.vy = 0
+    b.vy = 0
+  }
+}
+
 export default function DesktopShell() {
   const stageRef = useRef<HTMLDivElement>(null)
   const nextZRef = useRef(1)
@@ -383,55 +449,7 @@ export default function DesktopShell() {
               }
             }
 
-            // Keep pair overlap under 50% of the smaller square size.
-            const aOutsetX = a.width * RED_BORDER_OUTSET_RATIO
-            const aOutsetY = a.height * RED_BORDER_OUTSET_RATIO
-            const bOutsetX = b.width * RED_BORDER_OUTSET_RATIO
-            const bOutsetY = b.height * RED_BORDER_OUTSET_RATIO
-            const ax1 = a.x - aOutsetX
-            const ay1 = a.y - aOutsetY
-            const ax2 = a.x + a.width + aOutsetX
-            const ay2 = a.y + a.height + aOutsetY
-            const bx1 = b.x - bOutsetX
-            const by1 = b.y - bOutsetY
-            const bx2 = b.x + b.width + bOutsetX
-            const by2 = b.y + b.height + bOutsetY
-            const overlapX = Math.min(ax2, bx2) - Math.max(ax1, bx1)
-            const overlapY = Math.min(ay2, by2) - Math.max(ay1, by1)
-
-            if (overlapX > 0 && overlapY > 0) {
-              const allowedX = Math.min(ax2 - ax1, bx2 - bx1) * 0.5
-              const allowedY = Math.min(ay2 - ay1, by2 - by1) * 0.5
-              const excessX = overlapX - allowedX
-              const excessY = overlapY - allowedY
-
-              if (excessX > 0 || excessY > 0) {
-                const separateX = excessX >= excessY
-                if (separateX) {
-                  const shift = Math.max(0, excessX) + 0.5
-                  const dirA = acx <= bcx ? -1 : 1
-                  if (aActive && !bActive) {
-                    b.x -= dirA * shift
-                  } else if (!aActive && bActive) {
-                    a.x += dirA * shift
-                  } else {
-                    a.x += dirA * (shift * 0.5)
-                    b.x -= dirA * (shift * 0.5)
-                  }
-                } else {
-                  const shift = Math.max(0, excessY) + 0.5
-                  const dirA = acy <= bcy ? -1 : 1
-                  if (aActive && !bActive) {
-                    b.y -= dirA * shift
-                  } else if (!aActive && bActive) {
-                    a.y += dirA * shift
-                  } else {
-                    a.y += dirA * (shift * 0.5)
-                    b.y -= dirA * (shift * 0.5)
-                  }
-                }
-              }
-            }
+            resolveWindowPairToEdgeContact(a, b, aActive, bActive)
           }
         }
 
