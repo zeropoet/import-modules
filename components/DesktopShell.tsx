@@ -18,6 +18,7 @@ type WindowItem = {
   vy: number
   driftEnergy: number
   zIndex: number
+  edgeSide: "top" | "right" | "bottom" | "left"
 }
 
 type DragState = {
@@ -39,6 +40,7 @@ const MEDIUM_STAGE_MIN_DIM = 768
 const SMALL_STAGE_MIN_DIM = 480
 const MOBILE_BREAKPOINT = 768
 const PANEL_VIEWPORT_MARGIN = 16
+const MOBILE_EDGE_LANE_GAP = 16
 const CENTER_PANEL_STICK_RANGE = 56
 const CENTER_PANEL_STICK_PULL = 0.006
 const CENTER_PANEL_MAX_DAMPING = 0.9
@@ -68,6 +70,11 @@ function pickSquareColor() {
   return "rgb(255, 255, 255)"
 }
 
+function pickEdgeSide(indexSeed: number): "top" | "right" | "bottom" | "left" {
+  const sides: Array<"top" | "right" | "bottom" | "left"> = ["top", "right", "bottom", "left"]
+  return sides[Math.abs(indexSeed) % sides.length]
+}
+
 function randomSquareSize(stageWidth: number, stageHeight: number) {
   const { minSize: responsiveMinSize, maxSize: responsiveMaxSize } = getResponsiveSquareSizeBounds(stageWidth, stageHeight)
   const viewportCap = Math.max(MIN_SIZE, Math.floor(Math.min(stageWidth, stageHeight) * 0.28))
@@ -79,12 +86,23 @@ function randomSquareSize(stageWidth: number, stageHeight: number) {
 function getResponsiveSquareSizeBounds(stageWidth: number, stageHeight: number) {
   const minDimension = Math.min(stageWidth, stageHeight)
   if (minDimension <= SMALL_STAGE_MIN_DIM) {
-    return { minSize: 56, maxSize: 120 }
+    return { minSize: 44, maxSize: 96 }
   }
   if (minDimension <= MEDIUM_STAGE_MIN_DIM) {
-    return { minSize: 80, maxSize: 160 }
+    return { minSize: 64, maxSize: 132 }
   }
   return { minSize: MIN_SQUARE_SIZE, maxSize: MAX_SQUARE_SIZE }
+}
+
+function getCenterPanelSize(stageWidth: number, stageHeight: number) {
+  const desktopPanelSize = Math.min(420, stageWidth * 0.42, stageHeight * 0.42)
+  const { maxSize } = getResponsiveSquareSizeBounds(stageWidth, stageHeight)
+  const mobileLaneReserve = maxSize + MOBILE_EDGE_LANE_GAP
+  const mobilePanelSize = Math.max(
+    MIN_SIZE,
+    Math.min(stageWidth - PANEL_VIEWPORT_MARGIN - mobileLaneReserve, stageHeight - PANEL_VIEWPORT_MARGIN)
+  )
+  return stageWidth <= MOBILE_BREAKPOINT ? mobilePanelSize : desktopPanelSize
 }
 
 function hashToPhase(input: string) {
@@ -196,9 +214,7 @@ function lockToPanelSurface(
 }
 
 function getSquarePanelBounds(stageWidth: number, stageHeight: number) {
-  const desktopPanelSize = Math.min(420, stageWidth * 0.42, stageHeight * 0.42)
-  const mobilePanelSize = Math.max(MIN_SIZE, Math.min(stageWidth - PANEL_VIEWPORT_MARGIN, stageHeight - PANEL_VIEWPORT_MARGIN))
-  const panelSize = stageWidth <= MOBILE_BREAKPOINT ? mobilePanelSize : desktopPanelSize
+  const panelSize = getCenterPanelSize(stageWidth, stageHeight)
   const panelLeftRaw = (stageWidth - panelSize) * 0.5
   const panelTopRaw = (stageHeight - panelSize) * 0.5
   const panelOutset = panelSize * RED_BORDER_OUTSET_RATIO
@@ -261,6 +277,51 @@ function anchoredSpawnVelocity(side: "top" | "right" | "bottom" | "left") {
   }
 
   return { vx: settle, vy: drift }
+}
+
+function constrainToEdgeTravel(
+  windowItem: WindowItem,
+  stageWidth: number,
+  stageHeight: number,
+  panelLeft: number,
+  panelTop: number,
+  panelRight: number,
+  panelBottom: number
+) {
+  const insetX = windowItem.width * RED_BORDER_OUTSET_RATIO
+  const insetY = windowItem.height * RED_BORDER_OUTSET_RATIO
+  const edgePadding = 2
+
+  if (windowItem.edgeSide === "top" || windowItem.edgeSide === "bottom") {
+    const minX = panelLeft - windowItem.width - insetX + edgePadding
+    const maxX = panelRight + insetX - edgePadding
+    let nextX = windowItem.x + windowItem.vx
+    if (nextX < minX || nextX > maxX) {
+      windowItem.vx *= -0.72
+      nextX = clamp(nextX, minX, maxX)
+    }
+    windowItem.x = clamp(nextX, 0, Math.max(0, stageWidth - windowItem.width))
+    windowItem.y =
+      windowItem.edgeSide === "top"
+        ? clamp(panelTop - windowItem.height - insetY, 0, Math.max(0, stageHeight - windowItem.height))
+        : clamp(panelBottom + insetY, 0, Math.max(0, stageHeight - windowItem.height))
+    windowItem.vy = 0
+    return
+  }
+
+  const minY = panelTop - windowItem.height - insetY + edgePadding
+  const maxY = panelBottom + insetY - edgePadding
+  let nextY = windowItem.y + windowItem.vy
+  if (nextY < minY || nextY > maxY) {
+    windowItem.vy *= -0.72
+    nextY = clamp(nextY, minY, maxY)
+  }
+  windowItem.y = clamp(nextY, 0, Math.max(0, stageHeight - windowItem.height))
+  windowItem.x =
+    windowItem.edgeSide === "left"
+      ? clamp(panelLeft - windowItem.width - insetX, 0, Math.max(0, stageWidth - windowItem.width))
+      : clamp(panelRight + insetX, 0, Math.max(0, stageWidth - windowItem.width))
+  windowItem.vx = 0
 }
 
 function resolveWindowPairToEdgeContact(
@@ -363,7 +424,8 @@ export default function DesktopShell() {
       vx: (Math.random() - 0.5) * 0.6,
       vy: (Math.random() - 0.5) * 0.6,
       driftEnergy: 1,
-      zIndex: 1
+      zIndex: 1,
+      edgeSide: pickEdgeSide(index)
     }
   }
 
@@ -456,27 +518,17 @@ export default function DesktopShell() {
         for (const w of next) {
           if (w.id === activeId) continue
 
-          const cx = w.x + w.width / 2
-          const cy = w.y + w.height / 2
           const p = hashToPhase(w.id)
           const driftAngle = p + t * 0.35
           w.driftEnergy = Math.max(DRIFT_MIN_ENERGY, w.driftEnergy * DRIFT_EASE_DECAY)
-          w.vx += Math.cos(driftAngle) * DRIFT_ACCEL * w.driftEnergy
-          w.vy += Math.sin(driftAngle) * DRIFT_ACCEL * w.driftEnergy
 
-          const nearest = nearestPointOnRectBoundary(cx, cy, panelLeft, panelTop, panelRight, panelBottom)
-          const panelDx = nearest.x - cx
-          const panelDy = nearest.y - cy
-          const panelDist = Math.hypot(panelDx, panelDy)
-
-          if (panelDist < CENTER_PANEL_STICK_RANGE) {
-            const stick = 1 - panelDist / CENTER_PANEL_STICK_RANGE
-            w.vx += panelDx * CENTER_PANEL_STICK_PULL * stick
-            w.vy += panelDy * CENTER_PANEL_STICK_PULL * stick
-            const damping = 0.91 - (0.91 - CENTER_PANEL_MAX_DAMPING) * stick
-            w.vx *= damping
-            w.vy *= damping
+          const edgeDrift = DRIFT_ACCEL * w.driftEnergy
+          if (w.edgeSide === "top" || w.edgeSide === "bottom") {
+            w.vx += Math.cos(driftAngle) * edgeDrift
+          } else {
+            w.vy += Math.sin(driftAngle) * edgeDrift
           }
+
           const speed = Math.hypot(w.vx, w.vy)
           const frictionDamping = clamp(
             DRIFT_BASE_DAMPING - speed * DRIFT_SPEED_FRICTION,
@@ -488,29 +540,7 @@ export default function DesktopShell() {
           w.vx = clamp(w.vx, -MAX_DRIFT_SPEED, MAX_DRIFT_SPEED)
           w.vy = clamp(w.vy, -MAX_DRIFT_SPEED, MAX_DRIFT_SPEED)
 
-          const nextX = clamp(w.x + w.vx, 0, Math.max(0, stageSize.width - w.width))
-          const nextY = clamp(w.y + w.vy, 0, Math.max(0, stageSize.height - w.height))
-          const resolved = resolveRedBoundsPanelCollision(
-            nextX,
-            nextY,
-            w.width,
-            w.height,
-            panelLeft,
-            panelTop,
-            panelRight,
-            panelBottom
-          )
-
-          w.x = clamp(resolved.x, 0, Math.max(0, stageSize.width - w.width))
-          w.y = clamp(resolved.y, 0, Math.max(0, stageSize.height - w.height))
-          if (resolved.hitX) w.vx = 0
-          if (resolved.hitY) w.vy = 0
-
-          const locked = lockToPanelSurface(w.x, w.y, w.width, w.height, panelLeft, panelTop, panelRight, panelBottom)
-          w.x = clamp(locked.x, 0, Math.max(0, stageSize.width - w.width))
-          w.y = clamp(locked.y, 0, Math.max(0, stageSize.height - w.height))
-          if (locked.lockX) w.vx = 0
-          if (locked.lockY) w.vy = 0
+          constrainToEdgeTravel(w, stageSize.width, stageSize.height, panelLeft, panelTop, panelRight, panelBottom)
         }
 
         return next
@@ -550,7 +580,8 @@ export default function DesktopShell() {
         y: point.y,
         vx: velocity.vx,
         vy: velocity.vy,
-        zIndex: i + 1
+        zIndex: i + 1,
+        edgeSide: side
       })
     }
 
@@ -671,6 +702,7 @@ export default function DesktopShell() {
 
   const sortedWindows = useMemo(() => [...windows].sort((a, b) => a.zIndex - b.zIndex), [windows])
   const selectedWindow = useMemo(() => windows.find((w) => w.id === selectedId) ?? null, [selectedId, windows])
+  const centerPanelSize = useMemo(() => getCenterPanelSize(stageSize.width, stageSize.height), [stageSize.width, stageSize.height])
 
   return (
     <main className="desktop-shell">
@@ -724,7 +756,11 @@ export default function DesktopShell() {
         })}
 
         {selectedWindow ? (
-          <aside className="repo-panel" aria-label="Selected face preview">
+          <aside
+            className="repo-panel"
+            aria-label="Selected face preview"
+            style={{ width: `${centerPanelSize}px`, height: `${centerPanelSize}px` }}
+          >
             <iframe title={`${selectedWindow.title} preview`} src={selectedWindow.source} loading="lazy" />
           </aside>
         ) : null}
