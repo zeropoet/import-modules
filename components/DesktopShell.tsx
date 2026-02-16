@@ -41,6 +41,10 @@ const SMALL_STAGE_MIN_DIM = 480
 const MOBILE_BREAKPOINT = 768
 const PANEL_VIEWPORT_MARGIN = 16
 const MOBILE_EDGE_LANE_GAP = 16
+const LABEL_FONT = "600 10px Trebuchet MS, Gill Sans, Gill Sans MT, sans-serif"
+const LABEL_LETTER_SPACING_PX = 0.4
+const LABEL_HORIZONTAL_PADDING_PX = 12
+const LABEL_MIN_SCALE = 1.1
 const CENTER_PANEL_STICK_RANGE = 56
 const CENTER_PANEL_STICK_PULL = 0.006
 const CENTER_PANEL_MAX_DAMPING = 0.9
@@ -75,11 +79,30 @@ function pickEdgeSide(indexSeed: number): "top" | "right" | "bottom" | "left" {
   return sides[Math.abs(indexSeed) % sides.length]
 }
 
-function randomSquareSize(stageWidth: number, stageHeight: number) {
+function getLabelMinimumSquareSize(label: string) {
+  if (typeof document === "undefined") {
+    return MIN_SIZE
+  }
+
+  const canvas = document.createElement("canvas")
+  const context = canvas.getContext("2d")
+  if (!context) {
+    return MIN_SIZE
+  }
+
+  context.font = LABEL_FONT
+  const upperLabel = label.toUpperCase()
+  const textWidth = context.measureText(upperLabel).width
+  const letterSpacingWidth = Math.max(0, upperLabel.length - 1) * LABEL_LETTER_SPACING_PX
+  const labelWidth = textWidth + letterSpacingWidth + LABEL_HORIZONTAL_PADDING_PX
+  return Math.ceil(Math.max(MIN_SIZE, labelWidth * LABEL_MIN_SCALE))
+}
+
+function randomSquareSize(stageWidth: number, stageHeight: number, minSizeFloor: number) {
   const { minSize: responsiveMinSize, maxSize: responsiveMaxSize } = getResponsiveSquareSizeBounds(stageWidth, stageHeight)
   const viewportCap = Math.max(MIN_SIZE, Math.floor(Math.min(stageWidth, stageHeight) * 0.28))
-  const maxSize = clamp(viewportCap, MIN_SIZE, responsiveMaxSize)
-  const minSize = Math.min(responsiveMinSize, maxSize)
+  const maxSize = clamp(viewportCap, MIN_SIZE, Math.max(responsiveMaxSize, minSizeFloor))
+  const minSize = Math.min(Math.max(responsiveMinSize, minSizeFloor), maxSize)
   return Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize
 }
 
@@ -408,7 +431,8 @@ export default function DesktopShell() {
   function buildWindow(index: number, color: string = "rgb(255, 255, 255)"): WindowItem {
     const app = APP_REGISTRY[index % APP_REGISTRY.length]
     const title = app.id.toLowerCase()
-    const size = randomSquareSize(stageSize.width, stageSize.height)
+    const labelMinSize = getLabelMinimumSquareSize(title)
+    const size = randomSquareSize(stageSize.width, stageSize.height, labelMinSize)
     const point = randomCanvasPosition(stageSize.width, stageSize.height, size)
 
     return {
@@ -597,10 +621,12 @@ export default function DesktopShell() {
   }, [stageSize.width, stageSize.height])
 
   useEffect(() => {
-    const { maxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
+    const { maxSize: responsiveMaxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
     setWindows((prev) =>
       prev.map((w) => {
-        const nextSize = clamp(w.width, MIN_SIZE, maxSize)
+        const minSize = getLabelMinimumSquareSize(w.title)
+        const maxSize = Math.max(minSize, responsiveMaxSize)
+        const nextSize = clamp(w.width, minSize, maxSize)
         if (nextSize === w.width && nextSize === w.height) {
           return w
         }
@@ -681,8 +707,13 @@ export default function DesktopShell() {
         }
 
         const delta = Math.max(deltaX, deltaY)
-        const { maxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
-        const nextSize = clamp(active.startWidth + delta, MIN_SIZE, Math.min(maxSize, stageSize.width, stageSize.height))
+        const { maxSize: responsiveMaxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
+        const minSize = getLabelMinimumSquareSize(w.title)
+        const nextSize = clamp(
+          active.startWidth + delta,
+          minSize,
+          Math.max(minSize, Math.min(responsiveMaxSize, stageSize.width, stageSize.height))
+        )
         return {
           ...w,
           width: nextSize,
