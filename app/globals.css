@@ -154,6 +154,12 @@ body {
   box-shadow: none;
 }
 
+@media (max-width: 768px) {
+  .repo-panel {
+    width: calc(100vw - 1rem);
+  }
+}
+
 .repo-panel::before {
   content: "";
   position: absolute;

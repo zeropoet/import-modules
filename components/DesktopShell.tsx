@@ -35,6 +35,8 @@ const MAX_INITIAL_FACES = 4
 const RED_BORDER_OUTSET_RATIO = 0.05
 const MIN_SQUARE_SIZE = 100
 const MAX_SQUARE_SIZE = 200
+const MOBILE_BREAKPOINT = 768
+const PANEL_VIEWPORT_MARGIN = 16
 const CENTER_PANEL_STICK_RANGE = 56
 const CENTER_PANEL_STICK_PULL = 0.006
 const CENTER_PANEL_MAX_DAMPING = 0.9
@@ -180,7 +182,9 @@ function lockToPanelSurface(
 }
 
 function getSquarePanelBounds(stageWidth: number, stageHeight: number) {
-  const panelSize = Math.min(420, stageWidth * 0.42, stageHeight * 0.42)
+  const desktopPanelSize = Math.min(420, stageWidth * 0.42, stageHeight * 0.42)
+  const mobilePanelSize = Math.max(MIN_SIZE, Math.min(stageWidth - PANEL_VIEWPORT_MARGIN, stageHeight - PANEL_VIEWPORT_MARGIN))
+  const panelSize = stageWidth <= MOBILE_BREAKPOINT ? mobilePanelSize : desktopPanelSize
   const panelLeftRaw = (stageWidth - panelSize) * 0.5
   const panelTopRaw = (stageHeight - panelSize) * 0.5
   const panelOutset = panelSize * RED_BORDER_OUTSET_RATIO
