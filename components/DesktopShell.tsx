@@ -35,6 +35,8 @@ const MAX_INITIAL_FACES = 4
 const RED_BORDER_OUTSET_RATIO = 0.05
 const MIN_SQUARE_SIZE = 100
 const MAX_SQUARE_SIZE = 200
+const MEDIUM_STAGE_MIN_DIM = 768
+const SMALL_STAGE_MIN_DIM = 480
 const MOBILE_BREAKPOINT = 768
 const PANEL_VIEWPORT_MARGIN = 16
 const CENTER_PANEL_STICK_RANGE = 56
@@ -67,10 +69,22 @@ function pickSquareColor() {
 }
 
 function randomSquareSize(stageWidth: number, stageHeight: number) {
+  const { minSize: responsiveMinSize, maxSize: responsiveMaxSize } = getResponsiveSquareSizeBounds(stageWidth, stageHeight)
   const viewportCap = Math.max(MIN_SIZE, Math.floor(Math.min(stageWidth, stageHeight) * 0.28))
-  const maxSize = clamp(viewportCap, MIN_SIZE, MAX_SQUARE_SIZE)
-  const minSize = Math.min(MIN_SQUARE_SIZE, maxSize)
+  const maxSize = clamp(viewportCap, MIN_SIZE, responsiveMaxSize)
+  const minSize = Math.min(responsiveMinSize, maxSize)
   return Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize
+}
+
+function getResponsiveSquareSizeBounds(stageWidth: number, stageHeight: number) {
+  const minDimension = Math.min(stageWidth, stageHeight)
+  if (minDimension <= SMALL_STAGE_MIN_DIM) {
+    return { minSize: 56, maxSize: 120 }
+  }
+  if (minDimension <= MEDIUM_STAGE_MIN_DIM) {
+    return { minSize: 80, maxSize: 160 }
+  }
+  return { minSize: MIN_SQUARE_SIZE, maxSize: MAX_SQUARE_SIZE }
 }
 
 function hashToPhase(input: string) {
@@ -533,6 +547,27 @@ export default function DesktopShell() {
     seedInitialFour()
   }, [stageSize.width, stageSize.height])
 
+  useEffect(() => {
+    const { maxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
+    setWindows((prev) =>
+      prev.map((w) => {
+        const nextSize = clamp(w.width, MIN_SIZE, maxSize)
+        if (nextSize === w.width && nextSize === w.height) {
+          return w
+        }
+        return {
+          ...w,
+          width: nextSize,
+          height: nextSize,
+          x: clamp(w.x, 0, Math.max(0, stageSize.width - nextSize)),
+          y: clamp(w.y, 0, Math.max(0, stageSize.height - nextSize)),
+          vx: 0,
+          vy: 0
+        }
+      })
+    )
+  }, [stageSize.width, stageSize.height])
+
   function focusWindow(windowId: string) {
     const z = nextZRef.current + 1
     nextZRef.current = z
@@ -597,7 +632,8 @@ export default function DesktopShell() {
         }
 
         const delta = Math.max(deltaX, deltaY)
-        const nextSize = clamp(active.startWidth + delta, MIN_SIZE, Math.min(stageSize.width, stageSize.height))
+        const { maxSize } = getResponsiveSquareSizeBounds(stageSize.width, stageSize.height)
+        const nextSize = clamp(active.startWidth + delta, MIN_SIZE, Math.min(maxSize, stageSize.width, stageSize.height))
         return {
           ...w,
           width: nextSize,
