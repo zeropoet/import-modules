@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Import Modules</title>
+  <title>import-modules</title>
   <style>
     :root {
-      --stage: rgb(205, 205, 205);
-      --text: #fff;
+      --stage: #fff;
+      --text: rgb(205, 205, 205);
     }
 
     * { box-sizing: border-box; }
@@ -28,7 +28,7 @@
       --grid-outer: calc((var(--cell) * 3) + (var(--gap) * 2) + (var(--stroke-expand) * 2));
       --frame-size: min(calc(100vw - 60px), calc(100vh - 60px));
       padding: 6px 16px 16px;
-      border: 1px solid #fff;
+      border: 1px solid #f00;
       border-radius: 0;
       width: var(--frame-size);
       height: var(--frame-size);
@@ -45,7 +45,7 @@
       font-size: clamp(20px, 2.2vw, 32px);
       font-weight: 700;
       letter-spacing: 0.04em;
-      color: #fff;
+      color: #f00;
       width: var(--grid-outer);
       justify-self: center;
       text-align: right;
@@ -68,7 +68,6 @@
       block-size: clamp(45px, 7.875vw, 90px);
       display: block;
       object-fit: contain;
-      filter: brightness(0) invert(1);
     }
 
     @media (max-width: 900px) {
@@ -121,13 +120,13 @@
   </style>
 </head>
 <body>
-  <div class="brand" aria-hidden="true">
-    <a class="brand-link" href="https://zeropoet.xyz" target="_blank" rel="noopener noreferrer" aria-label="Visit zeropoet.xyz">
+  <div class="brand">
+    <a class="brand-link" href="https://zeropoet.xyz" aria-label="Visit zeropoet.xyz">
       <img class="logo" src="./logo.svg" alt="">
     </a>
   </div>
   <main class="shell">
-    <h1 class="title">imported-modules</h1>
+    <h1 class="title">import-modules</h1>
     <section class="grid" id="grid"></section>
   </main>
 
