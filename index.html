@@ -22,33 +22,21 @@
     }
 
     .shell {
-      --gap: 20px;
-      --cell: calc(min(calc((100cqw - (var(--gap) * 2)) / 3), calc((100cqh - (var(--gap) * 2)) / 3)) * 0.9);
+      --gap: 10px;
+      --cell: calc(min(calc((100cqw - (var(--gap) * 2)) / 3), calc((100cqh - (var(--gap) * 2)) / 3)));
       --stroke-expand: 0px;
       --grid-outer: calc((var(--cell) * 3) + (var(--gap) * 2) + (var(--stroke-expand) * 2));
-      --frame-size: min(calc(100vw - 60px), calc(100vh - 60px));
-      padding: 6px 16px 16px;
+      --frame-size: min(calc(100vw - 20px), calc(100vh - 20px));
+      padding: 8px;
       border: 1px solid #f00;
       border-radius: 0;
       width: var(--frame-size);
       height: var(--frame-size);
       aspect-ratio: 1 / 1;
-      margin: 40px auto;
+      margin: 10px auto;
       container-type: size;
       display: grid;
-      grid-template-rows: auto 1fr;
-      gap: 12px;
-    }
-
-    .title {
-      margin: 15px 0 0;
-      font-size: clamp(20px, 2.2vw, 32px);
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      color: #f00;
-      width: var(--grid-outer);
-      justify-self: center;
-      text-align: right;
+      grid-template-rows: 1fr;
     }
 
     .brand {
@@ -128,7 +116,6 @@
     </a>
   </div>
   <main class="shell">
-    <h1 class="title">import-modules</h1>
     <section class="grid" id="grid"></section>
   </main>
 
