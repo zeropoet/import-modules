@@ -1,161 +1,224 @@
-
 # Constitutional Field
 
-*A bounded recursive ecosystem for competitive invariant formation.*
+*A bounded recursive ecosystem operating within a deterministic constitutional manifold.*
 
 ---
 
 ## Overview
 
-Constitutional Field is a generative simulation engine designed to study how structure emerges, competes, stabilizes, and dissolves within immutable constraint.
+Constitutional Field is a generative simulation engine for studying how dynamic structures emerge, compete, stabilize, and dissolve within immutable constraint.
 
-It models a dynamically evolving system composed of:
+It extends the Constitutional Sigil from a static manifold into a living laboratory.
 
-* **Absolute Anchors** (constitutional invariants)
-* **Dynamic Invariants** (single-species competitive agents)
-* **Particle Flow** (finite resource substrate)
-* **Oscillating Energy Field** (environmental modulation layer)
-
-The system evolves through scarcity, territorial competition, nonlinear growth, and environmental forcing.
+Where the Sigil defines the law,
+Constitutional Field studies what attempts to persist inside it.
 
 This is not a particle toy.
 
-It is a formal laboratory for recursive structure under constitutional constraint.
+It is a structural instrument for recursive invariant formation under scarcity and constraint.
+
+---
+
+## Constitutional Substrate
+
+At its foundation lies a seeded, deterministic constitutional manifold:
+
+[
+F_{seed}
+]
+
+The seed defines:
+
+* Harmonic structure
+* Angular symmetry
+* Anchor curvature influence
+* Boundary domain
+
+For a given seed:
+
+* The constitutional geometry is reproducible
+* The structure is archivable
+* The law does not drift during runtime
+
+The constitution remains fixed.
+
+Only dynamic structures evolve.
+
+---
+
+## Completed Development Stages
+
+The engine has progressed through five implemented structural stages:
+
+### Stage 1 — Closure
+
+The field is defined over a finite circular domain.
+
+Boundary conditions are enforced.
+
+The system is closed and bounded.
+
+---
+
+### Stage 2 — Oscillating Energy
+
+A smooth, bounded oscillating energy field modulates environmental forcing:
+
+[
+E(r,\theta,t)
+]
+
+The field evolves temporally without breaking structural closure.
+
+---
+
+### Stage 3 — Basin Detection
+
+Local curvature wells are detected dynamically.
+
+Basins emerge from harmonic structure and anchor interaction.
+
+These basins form the substrate for invariant stabilization.
+
+---
+
+### Stage 4 — Emergent Promotion
+
+Regions of sustained energy accumulation promote dynamic invariants.
+
+Invariant formation is not injected.
+It emerges from basin persistence.
+
+Promotion is conditional, not arbitrary.
+
+---
+
+### Stage 5 — Competitive Ecosystem & Selection Pressure
+
+Dynamic invariants operate under:
+
+* Finite global energy budget
+* Territorial suppression
+* Nonlinear growth constraints
+* Decay under scarcity
+
+Competition is structural.
+
+No invariant has infinite growth potential.
+
+Selection pressure is enforced globally.
 
 ---
 
 ## Architectural Layers
 
-The engine is intentionally layered:
-
 ### Layer 0 — Absolute Anchors
 
-Foundational invariants (e.g., `B`, `Ci`) that:
+Fixed invariants ( A_i ):
 
-* Remain fixed in space
-* Do not compete
-* Do not consume energy
-* Permanently shape field curvature
+[
+\frac{dA_i}{dt} = 0
+]
 
-They define the constitutional geometry.
+They:
 
-The system’s foundations cannot be overthrown.
+* Do not move
+* Do not decay
+* Permanently shape curvature
+
+They represent constitutional constraint.
 
 ---
 
 ### Layer 1 — Dynamic Invariants (Single Species)
 
-Dynamic invariants are competitive agents operating within constitutional bounds.
+Dynamic invariants ( I_j ) evolve according to:
 
-They:
+**Gradient Motion**
+[
+\frac{d\mathbf{x}_j}{dt} = -\nabla E(\mathbf{x}_j, t)
+]
 
-* Move along energy gradients
-* Absorb finite resource from particle flow
-* Compete territorially
-* Grow nonlinearly
-* Decay without intake
-* Can dissolve
+**Energy Intake Under Scarcity**
+[
+E_j(t+1) = E_j(t) + \frac{I_j}{\sum_k I_k} \cdot B - \delta
+]
 
-Each dynamic invariant maintains:
+Where:
 
-* `position`
-* `energy`
-* `strength`
-* `stability`
+* ( I_j ) = local intake
+* ( B ) = global energy budget
+* ( \delta ) = decay constant
 
-Strength modifies curvature.
-Energy determines survival.
-Scarcity enforces selection pressure.
+**Nonlinear Strength Growth**
+[
+S_j = S_{max} \cdot \frac{E_j}{1 + E_j}
+]
 
-They are mortal structures inside an immortal geometry.
+Dynamic invariants are mortal.
 
----
-
-### Layer 2 — Oscillating Energy Field
-
-The energy field is:
-
-* Radial and angular
-* Temporally modulated
-* Smooth and bounded
-* Globally balanced
-
-Energy influences:
-
-* Particle motion
-* Invariant drift
-* Local curvature bias
-
-The field breathes without drifting.
-
-Closure is preserved.
+They exist conditionally within law.
 
 ---
 
-### Layer 3 — Particle Flow (Finite Resource Layer)
+### Layer 2 — Density Field
 
-Particles represent distributed finite resource.
+Total curvature is:
 
-They:
+[
+D(\mathbf{x}, t) =
+\sum_i S_i \cdot e^{-k |\mathbf{x} - \mathbf{x}_i|}
+]
 
-* Move along negative energy gradients
-* Accumulate in basins
-* Provide intake to dynamic invariants
+Absolute anchors contribute constant curvature.
 
-A global energy budget is enforced.
+Dynamic invariants contribute variable curvature.
 
-Growth is finite.
-Scarcity is structural.
-
----
-
-## Evolutionary Constraints
-
-The engine enforces:
-
-### Scarcity
-
-A fixed global energy budget is proportionally distributed.
-
-Competition is global.
-
-No agent has infinite growth potential.
+The manifold deforms under competitive pressure.
 
 ---
 
-### Territorial Suppression
+## Global System Definition
 
-Stronger invariants reduce intake of nearby weaker ones.
+[
+\boxed{
+\begin{aligned}
+\text{Motion:} &\quad \frac{d\mathbf{x}}{dt} = -\nabla E \
+\text{Scarcity:} &\quad \sum_j \Delta E_j = B \
+\text{Growth:} &\quad S = \frac{S_{max}E}{1+E} \
+\text{Decay:} &\quad E \rightarrow E - \delta \
+\text{Anchors:} &\quad \frac{dA}{dt} = 0
+\end{aligned}
+}
+]
 
-Spatial dominance emerges organically.
+This enforces:
+
+* Boundary
+* Deterministic constitution
+* Environmental modulation
+* Finite resource
+* Selection pressure
+* Recursive reinforcement
 
 ---
 
-### Nonlinear Growth
+## Relationship to Constitutional Sigil
 
-Strength follows a logistic curve:
+Constitutional Sigil defines the static manifold in dual projection (2D canonical, 3D elevation).
 
-* Rapid early expansion
-* Asymptotic ceiling
-* Suppression of runaway monopolization
+Constitutional Field introduces dynamic competition inside that same seeded manifold.
 
-Multi-pole equilibria become possible.
+Sigil expresses the law.
+Field studies persistence within the law.
 
----
-
-### Anchor Pressure
-
-Dynamic invariants near constitutional anchors experience decay.
-
-Foundations remain uncolonizable.
-
-Structural corridors and ring-like ecosystems emerge.
+Both share the same constitutional substrate.
 
 ---
 
 ## Emergent Regimes
 
-Depending on parameter tuning, the system may exhibit:
+Depending on parameter tuning and seed:
 
 * Stable multi-node equilibrium
 * Rotating dominance cycles
@@ -163,93 +226,34 @@ Depending on parameter tuning, the system may exhibit:
 * Competitive collapse
 * Persistent critical churn
 
-The engine operates across ordered, critical, and chaotic regimes.
+The engine spans ordered, critical, and chaotic regimes.
 
-Each regime is diagnostically meaningful.
-
----
-
-## Formal Proposition
-
-Constitutional Field operationalizes a structural thesis:
-
-> Legible structure emerges from constraint under recursion and scarcity.
-
-Structure arises through:
-
-* Boundary
-* Environmental modulation
-* Finite resource
-* Selection pressure
-* Recursive reinforcement
-
-Absolute reference remains fixed.
-
-Dynamic authorship unfolds within it.
-
----
-
-## Repository Structure
-
-```id="rmw21x"
-constitutional-field/
-├── app/
-│   ├── page.tsx
-│   ├── layout.tsx
-├── components/
-│   ├── Canvas.tsx
-├── lib/
-│   ├── stage.ts
-│   ├── engine.ts
-│   ├── projection.ts
-```
-
-The architecture is dimensionally extensible.
-
-Future expansions may include:
-
-* 3D projection
-* Species differentiation
-* Energy conservation enforcement
-* Meta-invariant evolution
-* Phase diagram mapping of parameter regimes
-
-Single-species competition remains the current focus to preserve clarity.
-
----
-
-## Current Stage
-
-* Constitutional anchors: immutable
-* Dynamic invariants: competitive and mortal
-* Energy field: oscillating
-* Resource layer: finite
-* Selection pressure: active
-
-The system is constitutionally stable and evolutionarily expressive.
+All behavior remains bounded by the constitution.
 
 ---
 
 ## Intent
 
-This project formalizes a translation pipeline:
+Concept → Constraint → Field → Promotion → Competition → Selection → Emergence
 
-Concept → Constraint Model → Field Simulation → Emergent Topology
+Constitutional Field operationalizes the thesis:
 
-It is a reproducible architecture for studying how invariants attempt to exist within bounded recursive systems.
+> Legible structure emerges from constraint under recursion and scarcity.
 
-Recursive authorship is implemented algorithmically.
+The constitution does not adapt.
+
+Dynamic structures must negotiate it.
 
 ---
 
 ## Closing
 
-Constitutional Field is not an aesthetic generator.
+Constitutional Field is a recursive ecosystem inside a deterministic geometry.
 
-It is a structural instrument.
+The law is stable.
 
-A bounded recursive ecosystem.
+Scarcity is real.
 
-A constitutional geometry under selective pressure.
+Selection is structural.
 
-A machine for observing how invariants compete to persist.
+Only what can persist under constraint remains.
