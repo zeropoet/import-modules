@@ -6,8 +6,8 @@ body {
   height: 100%;
   overflow: hidden;
   background: #03060d;
-  color: #eff4ff;
-  font-family: "Avenir Next Condensed", "Eurostile", "Avenir Next", "Arial Narrow", sans-serif;
+  color: #f3f4f6;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
 * {
@@ -18,155 +18,95 @@ body {
   position: relative;
   width: 100vw;
   height: 100vh;
-  background:
-    radial-gradient(1200px 640px at 12% 10%, rgba(66, 132, 199, 0.2), transparent 60%),
-    radial-gradient(1000px 640px at 90% 80%, rgba(255, 170, 92, 0.09), transparent 58%);
 }
 
-.float-panel {
+.bottom-dock {
   position: fixed;
-  top: 0;
-  left: 0;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
   z-index: 20;
-  width: min(420px, calc(100vw - 28px));
-  border-radius: 12px;
-  border: 1px solid rgba(136, 184, 245, 0.2);
-  background: linear-gradient(160deg, rgba(10, 16, 28, 0.62), rgba(14, 20, 33, 0.54));
-  backdrop-filter: blur(6px) saturate(1.02);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.panel-drop {
+  border: 1px solid #ef4444;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.38);
   overflow: hidden;
-  box-shadow:
-    inset 0 1px 0 rgba(182, 217, 255, 0.12),
-    0 8px 20px rgba(0, 0, 0, 0.28);
-  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
 }
 
-.float-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(180deg, rgba(102, 219, 255, 0.95), rgba(255, 186, 109, 0.72));
-  opacity: 0.74;
-}
-
-.float-panel.dragging {
-  transition: none;
-  box-shadow:
-    0 14px 34px rgba(0, 0, 0, 0.45),
-    inset 0 0 0 1px rgba(187, 220, 255, 0.18);
-}
-
-.panel-handle {
-  position: relative;
-  width: 100%;
-  appearance: none;
-  border: 0;
-  text-align: left;
-  cursor: grab;
+.panel-drop > summary {
+  list-style: none;
+  cursor: pointer;
   user-select: none;
-  padding: 0.58rem 2.1rem 0.58rem 1rem;
-  font-size: 0.78rem;
+  padding: 0.45rem 0.58rem;
+  color: #ef4444;
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: rgba(229, 240, 255, 0.96);
-  border-bottom: 1px solid rgba(145, 178, 255, 0.12);
-  line-height: 1.1;
-  text-shadow: 0 0 10px rgba(77, 182, 255, 0.15);
-  background:
-    linear-gradient(90deg, rgba(43, 75, 124, 0.34), rgba(26, 47, 82, 0.16)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(171, 210, 255, 0.13) 0px,
-      rgba(171, 210, 255, 0.13) 1px,
-      transparent 1px,
-      transparent 18px
-    );
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.65);
 }
 
-.panel-handle:active {
-  cursor: grabbing;
+.panel-drop > summary::-webkit-details-marker {
+  display: none;
 }
 
-.panel-handle::before {
-  content: "●";
-  position: absolute;
-  right: 1.12rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.52rem;
-  color: rgba(103, 219, 255, 0.95);
+.panel-drop:not([open]) > summary {
+  border-bottom: 0;
 }
 
-.panel-handle::after {
-  content: "↕";
-  position: absolute;
-  right: 0.52rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.66rem;
-  color: rgba(170, 202, 248, 0.9);
+.drop-content {
+  padding: 0.55rem;
 }
 
-.panel-body {
-  padding: 0.72rem 0.82rem 0.86rem;
-}
-
-.panel-registry .panel-body {
-  max-height: min(52vh, calc(100vh - 280px));
+.panel-registry .drop-content {
+  max-height: min(42vh, calc(100vh - 260px));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 0.35rem;
 }
 
-.panel-body label {
+.drop-content label {
   display: block;
-  margin: 0.6rem 0;
-  font-size: 0.8rem;
-  letter-spacing: 0.03em;
-  color: rgba(215, 230, 255, 0.9);
+  margin: 0.5rem 0;
+  font-size: 0.78rem;
+  color: #f1f5f9;
 }
 
-.panel-body select,
-.panel-body input {
+.drop-content input {
   width: 100%;
-  margin-top: 0.34rem;
-  border: 1px solid rgba(134, 177, 245, 0.3);
-  background: rgba(9, 14, 24, 0.56);
-  color: #eef3ff;
-  padding: 0.45rem 0.52rem;
-  border-radius: 8px;
-  box-shadow: inset 0 1px 0 rgba(170, 207, 255, 0.14);
+  margin-top: 0.3rem;
+  border: 1px solid rgba(239, 68, 68, 0.7);
+  background: rgba(0, 0, 0, 0.45);
+  color: #f9fafb;
+  padding: 0.45rem;
+  border-radius: 0;
 }
 
 .button-row {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
 }
 
 .button-row button {
-  border: 1px solid rgba(126, 178, 246, 0.34);
-  background: linear-gradient(160deg, rgba(29, 54, 95, 0.56), rgba(16, 32, 61, 0.62));
-  color: #edf2ff;
-  border-radius: 8px;
-  padding: 0.45rem 0.6rem;
+  border: 1px solid #ef4444;
+  background: rgba(0, 0, 0, 0.42);
+  color: #ef4444;
+  border-radius: 0;
+  padding: 0.4rem 0.5rem;
   cursor: pointer;
-  letter-spacing: 0.03em;
-  transition: transform 140ms ease, border-color 140ms ease;
-}
-
-.button-row button:hover {
-  transform: translateY(-1px);
-  border-color: rgba(147, 207, 255, 0.85);
 }
 
 .description,
 .active-seed {
-  margin: 0.45rem 0 0;
-  color: rgba(224, 234, 255, 0.84);
+  margin: 0.4rem 0 0;
+  color: #e5e7eb;
   font-size: 0.78rem;
-  letter-spacing: 0.02em;
 }
 
 .hud-panel {
@@ -178,14 +118,17 @@ body {
 
 .hud-panel h3 {
   margin: 0 0 0.45rem;
-  font-size: 0.95rem;
+  color: #ef4444;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .hud-panel ul {
   margin: 0;
   padding-left: 1rem;
-  font-size: 0.8rem;
-  line-height: 1.4;
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .metric-list {
@@ -193,7 +136,7 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.33rem;
+  gap: 0.3rem;
 }
 
 .metric-item {
@@ -201,91 +144,67 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.45rem;
-  border-radius: 7px;
-  border: 1px solid rgba(132, 164, 231, 0.26);
-  padding: 0.28rem 0.4rem;
-  background: rgba(13, 18, 30, 0.72);
-  font-size: 0.76rem;
+  border: 1px solid rgba(239, 68, 68, 0.38);
+  padding: 0.24rem 0.36rem;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 0.74rem;
 }
 
 .metric-item span {
-  color: rgba(215, 226, 251, 0.92);
+  color: #f3f4f6;
 }
 
 .metric-item strong {
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
-.metric-good {
-  border-color: rgba(111, 221, 169, 0.52);
+.metric-good strong,
+.status-badge.metric-good {
+  color: #86efac;
 }
 
-.metric-good strong {
-  color: #6ff2be;
+.metric-warn strong,
+.status-badge.metric-warn {
+  color: #fde68a;
 }
 
-.metric-warn {
-  border-color: rgba(255, 206, 108, 0.52);
-}
-
-.metric-warn strong {
-  color: #ffd77f;
-}
-
-.metric-critical {
-  border-color: rgba(255, 130, 130, 0.6);
-}
-
-.metric-critical strong {
-  color: #ff9b9b;
+.metric-critical strong,
+.status-badge.metric-critical {
+  color: #fca5a5;
 }
 
 .alignment-statuses {
   margin-top: 0.45rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.3rem;
 }
 
 .status-badge {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 0.18rem 0.35rem;
-  border-radius: 999px;
-  border: 1px solid rgba(147, 179, 244, 0.4);
-  background: rgba(14, 20, 33, 0.7);
-}
-
-.status-badge.metric-good {
-  color: #6ff2be;
-}
-
-.status-badge.metric-warn {
-  color: #ffd77f;
-}
-
-.status-badge.metric-critical {
-  color: #ff9b9b;
+  padding: 0.14rem 0.28rem;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .schema-grid {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 
 .schema-item {
   display: grid;
   grid-template-columns: 50px 1fr;
-  gap: 0.5rem;
+  gap: 0.45rem;
   align-items: center;
 }
 
 .schema-item p {
   margin: 0;
-  font-size: 0.76rem;
-  color: rgba(219, 231, 255, 0.86);
+  font-size: 0.74rem;
+  color: #e5e7eb;
 }
 
 .schema-dot,
@@ -317,18 +236,16 @@ body {
 .schema-label {
   width: 50px;
   height: 22px;
-  border-radius: 5px;
-  border: 1px solid rgba(153, 186, 255, 0.45);
-  color: rgba(238, 245, 255, 0.95);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  color: #f1f5f9;
   font-size: 0.68rem;
 }
 
 .schema-anchor {
   width: 22px;
   height: 22px;
-  border-radius: 5px;
-  border: 1px solid rgba(226, 234, 255, 0.9);
-  background: rgba(219, 230, 255, 0.82);
+  border: 1px solid rgba(239, 68, 68, 0.75);
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .schema-probe {
@@ -376,22 +293,21 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .registry-row {
-  border: 1px solid rgba(130, 165, 236, 0.28);
-  border-radius: 8px;
-  padding: 0.38rem 0.45rem;
-  background: rgba(14, 19, 32, 0.7);
+  border: 1px solid rgba(239, 68, 68, 0.38);
+  padding: 0.33rem 0.4rem;
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .registry-head {
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  gap: 0.38rem;
+  gap: 0.35rem;
   align-items: center;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
 }
 
 .registry-head strong {
@@ -408,46 +324,40 @@ body {
 }
 
 .registry-bars {
-  margin-top: 0.3rem;
+  margin-top: 0.26rem;
   display: grid;
   gap: 0.2rem;
 }
 
 .age-phase {
-  margin-top: 0.22rem;
+  margin-top: 0.2rem;
   display: inline-block;
   text-transform: uppercase;
   font-size: 0.62rem;
   letter-spacing: 0.06em;
-  padding: 0.12rem 0.34rem;
-  border-radius: 999px;
-  border: 1px solid rgba(131, 168, 237, 0.35);
+  padding: 0.1rem 0.3rem;
+  border: 1px solid rgba(239, 68, 68, 0.45);
 }
 
 .age-phase-spark {
   color: #8fd0ff;
-  border-color: rgba(143, 208, 255, 0.46);
 }
 
 .age-phase-bloom {
   color: #9ce7d0;
-  border-color: rgba(156, 231, 208, 0.46);
 }
 
 .age-phase-mature {
   color: #ffd38b;
-  border-color: rgba(255, 211, 139, 0.5);
 }
 
 .age-phase-elder {
   color: #ffb3c4;
-  border-color: rgba(255, 179, 196, 0.55);
 }
 
 .bar-track {
   width: 100%;
   height: 5px;
-  border-radius: 4px;
   background: rgba(95, 117, 160, 0.35);
   overflow: hidden;
 }
@@ -455,20 +365,26 @@ body {
 .bar-energy,
 .bar-age {
   height: 100%;
-  border-radius: 4px;
 }
 
 .bar-age {
   background: rgba(245, 219, 159, 0.9);
 }
 
-@media (max-width: 900px) {
-  .float-panel {
-    width: calc(100vw - 16px);
-    max-width: calc(100vw - 16px);
+@media (max-width: 1100px) {
+  .bottom-dock {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .bottom-dock {
+    grid-template-columns: 1fr;
+    max-height: 58vh;
+    overflow-y: auto;
   }
 
-  .panel-registry .panel-body {
-    max-height: min(40vh, calc(100vh - 330px));
+  .panel-registry .drop-content {
+    max-height: min(36vh, calc(100vh - 300px));
   }
 }
