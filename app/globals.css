@@ -5,9 +5,9 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #05070b;
+  background: #03060d;
   color: #eff4ff;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Avenir Next Condensed", "Eurostile", "Avenir Next", "Arial Narrow", sans-serif;
 }
 
 * {
@@ -15,46 +15,128 @@ body {
 }
 
 .shell {
+  position: relative;
   width: 100vw;
   height: 100vh;
+  background:
+    radial-gradient(1200px 640px at 12% 10%, rgba(66, 132, 199, 0.2), transparent 60%),
+    radial-gradient(1000px 640px at 90% 80%, rgba(255, 170, 92, 0.09), transparent 58%);
 }
 
-.panel {
-  background: rgba(9, 13, 24, 0.86);
-  border: 1px solid rgba(145, 178, 255, 0.28);
-  backdrop-filter: blur(8px);
-  border-radius: 10px;
-  padding: 12px;
-}
-
-.control-panel {
+.float-panel {
   position: fixed;
-  top: 12px;
-  left: 12px;
+  top: 0;
+  left: 0;
   z-index: 20;
-  width: min(360px, calc(100vw - 24px));
+  width: min(420px, calc(100vw - 28px));
+  border-radius: 12px;
+  border: 1px solid rgba(136, 184, 245, 0.2);
+  background: linear-gradient(160deg, rgba(10, 16, 28, 0.62), rgba(14, 20, 33, 0.54));
+  backdrop-filter: blur(6px) saturate(1.02);
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(182, 217, 255, 0.12),
+    0 8px 20px rgba(0, 0, 0, 0.28);
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
 }
 
-.control-panel h2 {
-  margin: 0 0 0.65rem;
-  font-size: 1.1rem;
+.float-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, rgba(102, 219, 255, 0.95), rgba(255, 186, 109, 0.72));
+  opacity: 0.74;
 }
 
-.control-panel label {
+.float-panel.dragging {
+  transition: none;
+  box-shadow:
+    0 14px 34px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(187, 220, 255, 0.18);
+}
+
+.panel-handle {
+  position: relative;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  text-align: left;
+  cursor: grab;
+  user-select: none;
+  padding: 0.58rem 2.1rem 0.58rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(229, 240, 255, 0.96);
+  border-bottom: 1px solid rgba(145, 178, 255, 0.12);
+  line-height: 1.1;
+  text-shadow: 0 0 10px rgba(77, 182, 255, 0.15);
+  background:
+    linear-gradient(90deg, rgba(43, 75, 124, 0.34), rgba(26, 47, 82, 0.16)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(171, 210, 255, 0.13) 0px,
+      rgba(171, 210, 255, 0.13) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+}
+
+.panel-handle:active {
+  cursor: grabbing;
+}
+
+.panel-handle::before {
+  content: "●";
+  position: absolute;
+  right: 1.12rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.52rem;
+  color: rgba(103, 219, 255, 0.95);
+}
+
+.panel-handle::after {
+  content: "↕";
+  position: absolute;
+  right: 0.52rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.66rem;
+  color: rgba(170, 202, 248, 0.9);
+}
+
+.panel-body {
+  padding: 0.72rem 0.82rem 0.86rem;
+}
+
+.panel-registry .panel-body {
+  max-height: min(52vh, calc(100vh - 280px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.35rem;
+}
+
+.panel-body label {
   display: block;
   margin: 0.6rem 0;
-  font-size: 0.86rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  color: rgba(215, 230, 255, 0.9);
 }
 
-.control-panel select,
-.control-panel input {
+.panel-body select,
+.panel-body input {
   width: 100%;
-  margin-top: 0.35rem;
-  border: 1px solid rgba(134, 170, 255, 0.32);
-  background: rgba(9, 12, 20, 0.9);
+  margin-top: 0.34rem;
+  border: 1px solid rgba(134, 177, 245, 0.3);
+  background: rgba(9, 14, 24, 0.56);
   color: #eef3ff;
-  padding: 0.5rem;
+  padding: 0.45rem 0.52rem;
   border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(170, 207, 255, 0.14);
 }
 
 .button-row {
@@ -64,36 +146,34 @@ body {
 }
 
 .button-row button {
-  border: 1px solid rgba(135, 176, 255, 0.4);
-  background: rgba(17, 27, 50, 0.85);
+  border: 1px solid rgba(126, 178, 246, 0.34);
+  background: linear-gradient(160deg, rgba(29, 54, 95, 0.56), rgba(16, 32, 61, 0.62));
   color: #edf2ff;
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
   cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.button-row button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(147, 207, 255, 0.85);
 }
 
 .description,
 .active-seed {
-  margin: 0.5rem 0 0;
+  margin: 0.45rem 0 0;
   color: rgba(224, 234, 255, 0.84);
-  font-size: 0.82rem;
-}
-
-.hud-right {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 20;
-  width: min(380px, calc(100vw - 24px));
-  display: grid;
-  gap: 10px;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
 }
 
 .hud-panel {
-  background: rgba(8, 11, 20, 0.84);
-  border: 1px solid rgba(145, 178, 255, 0.28);
-  border-radius: 10px;
-  padding: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
 }
 
 .hud-panel h3 {
@@ -106,6 +186,88 @@ body {
   padding-left: 1rem;
   font-size: 0.8rem;
   line-height: 1.4;
+}
+
+.metric-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.33rem;
+}
+
+.metric-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 7px;
+  border: 1px solid rgba(132, 164, 231, 0.26);
+  padding: 0.28rem 0.4rem;
+  background: rgba(13, 18, 30, 0.72);
+  font-size: 0.76rem;
+}
+
+.metric-item span {
+  color: rgba(215, 226, 251, 0.92);
+}
+
+.metric-item strong {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.metric-good {
+  border-color: rgba(111, 221, 169, 0.52);
+}
+
+.metric-good strong {
+  color: #6ff2be;
+}
+
+.metric-warn {
+  border-color: rgba(255, 206, 108, 0.52);
+}
+
+.metric-warn strong {
+  color: #ffd77f;
+}
+
+.metric-critical {
+  border-color: rgba(255, 130, 130, 0.6);
+}
+
+.metric-critical strong {
+  color: #ff9b9b;
+}
+
+.alignment-statuses {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.status-badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.18rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 179, 244, 0.4);
+  background: rgba(14, 20, 33, 0.7);
+}
+
+.status-badge.metric-good {
+  color: #6ff2be;
+}
+
+.status-badge.metric-warn {
+  color: #ffd77f;
+}
+
+.status-badge.metric-critical {
+  color: #ff9b9b;
 }
 
 .schema-grid {
@@ -169,6 +331,46 @@ body {
   background: rgba(219, 230, 255, 0.82);
 }
 
+.schema-probe {
+  width: 42px;
+  height: 22px;
+  position: relative;
+}
+
+.schema-probe-tail {
+  position: absolute;
+  left: 4px;
+  right: 12px;
+  top: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(82, 173, 255, 0.35), rgba(255, 194, 95, 0.95));
+}
+
+.schema-probe-head {
+  position: absolute;
+  right: 2px;
+  top: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #54adff, #ffc25f);
+}
+
+.schema-phase {
+  display: inline-grid;
+  place-items: center;
+  width: 50px;
+  height: 22px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  color: #ffb3c4;
+  border: 1px solid rgba(255, 179, 196, 0.55);
+  background: rgba(59, 24, 39, 0.45);
+}
+
 .registry-list {
   list-style: none;
   margin: 0;
@@ -211,6 +413,37 @@ body {
   gap: 0.2rem;
 }
 
+.age-phase {
+  margin-top: 0.22rem;
+  display: inline-block;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  padding: 0.12rem 0.34rem;
+  border-radius: 999px;
+  border: 1px solid rgba(131, 168, 237, 0.35);
+}
+
+.age-phase-spark {
+  color: #8fd0ff;
+  border-color: rgba(143, 208, 255, 0.46);
+}
+
+.age-phase-bloom {
+  color: #9ce7d0;
+  border-color: rgba(156, 231, 208, 0.46);
+}
+
+.age-phase-mature {
+  color: #ffd38b;
+  border-color: rgba(255, 211, 139, 0.5);
+}
+
+.age-phase-elder {
+  color: #ffb3c4;
+  border-color: rgba(255, 179, 196, 0.55);
+}
+
 .bar-track {
   width: 100%;
   height: 5px;
@@ -227,4 +460,15 @@ body {
 
 .bar-age {
   background: rgba(245, 219, 159, 0.9);
+}
+
+@media (max-width: 900px) {
+  .float-panel {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+  }
+
+  .panel-registry .panel-body {
+    max-height: min(40vh, calc(100vh - 330px));
+  }
 }

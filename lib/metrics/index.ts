@@ -1,4 +1,5 @@
 import type { SimMetrics, SimState } from "@/lib/state/types"
+import { evaluateAlignment } from "@/lib/alignment/controller"
 
 function shannonEntropy(weights: number[]): number {
   const total = weights.reduce((sum, value) => sum + value, 0)
@@ -34,13 +35,18 @@ export function computeMetrics(state: SimState): SimMetrics {
       ? state.basins.reduce((sum, basin) => sum + Math.min(1, basin.frames / 20), 0) / state.basins.length
       : 0
 
-  return {
+  const core: SimMetrics = {
     totalEnergy,
     budget,
     conservedDelta,
     livingInvariants: livingDynamics.length,
     entropySpread: shannonEntropy(strengths),
     dominanceIndex,
-    basinOccupancyStability: basinStability
+    basinOccupancyStability: basinStability,
+    alignmentScore: 0
   }
+
+  const alignment = evaluateAlignment(core)
+  core.alignmentScore = alignment.score
+  return core
 }

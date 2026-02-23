@@ -35,6 +35,25 @@ export default function HUDSchema() {
             Squares are anchors (`B`, `Ci`), circles are dynamic invariants
           </p>
         </div>
+        <div className="schema-item">
+          <span className="schema-probe">
+            <span className="schema-probe-tail" />
+            <span className="schema-probe-head" />
+          </span>
+          <p>
+            <strong>Probe Motion</strong>
+            <br />
+            Trails show direction; cooler/slower to warmer/faster indicates probe velocity
+          </p>
+        </div>
+        <div className="schema-item">
+          <span className="schema-phase">elder</span>
+          <p>
+            <strong>Age Phase</strong>
+            <br />
+            Registry badges show lifecycle state: spark, bloom, mature, elder
+          </p>
+        </div>
       </div>
     </section>
   )

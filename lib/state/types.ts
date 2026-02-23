@@ -10,6 +10,11 @@ export type FieldFns = {
 export type ProbeParticle = {
   x: number
   y: number
+  prevX: number
+  prevY: number
+  speed: number
+  age: number
+  trail: Vec2[]
 }
 
 export type Basin = {
@@ -55,6 +60,7 @@ export type SimMetrics = {
   entropySpread: number
   dominanceIndex: number
   basinOccupancyStability: number
+  alignmentScore: number
 }
 
 export type SimGlobals = {
@@ -62,6 +68,8 @@ export type SimGlobals = {
   time: number
   seed: number
   budget: number
+  regulatorIntegral: number
+  viewportMinPx: number
   domainRadius: number
   constitutionHash: string
   energyEnabled: boolean

@@ -1,20 +1,35 @@
 import { event, type Operator, type StagePreset } from "@/lib/operators/types"
 import type { Basin, ProbeParticle, SimInvariant, SimState } from "@/lib/state/types"
 import { clusterPoints, computeDensityGradient, computeEnergyGradient, dynamicInvariants } from "@/lib/sim/math"
+import { computeMetrics } from "@/lib/metrics"
+import { deriveAlignmentControl, evaluateAlignment } from "@/lib/alignment/controller"
 
 const DOMAIN = 1
+const MAX_PROBE_TRAIL_POINTS = 20
+const RESPAWN_RADIUS_PX = 100
 
 function seededUnit(seed: number, salt: number): number {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
   return x - Math.floor(x)
 }
 
-function randomProbe(seed: number, tick: number, salt: number): ProbeParticle {
-  const x = seededUnit(seed, tick * 113 + salt * 17)
-  const y = seededUnit(seed, tick * 197 + salt * 23)
+function randomProbe(state: SimState, salt: number): ProbeParticle {
+  const viewportMin = Math.max(1, state.globals.viewportMinPx)
+  const respawnRadiusWorld = Math.min(DOMAIN, (RESPAWN_RADIUS_PX * 2) / viewportMin)
+  const radius =
+    Math.sqrt(seededUnit(state.globals.seed, state.globals.tick * 131 + salt * 29)) *
+    respawnRadiusWorld
+  const theta = seededUnit(state.globals.seed, state.globals.tick * 149 + salt * 31) * Math.PI * 2
+  const px = Math.cos(theta) * radius
+  const py = Math.sin(theta) * radius
   return {
-    x: (x * 2 - 1) * DOMAIN,
-    y: (y * 2 - 1) * DOMAIN
+    x: px,
+    y: py,
+    prevX: px,
+    prevY: py,
+    speed: 0,
+    age: 0,
+    trail: [[px, py]]
   }
 }
 
@@ -42,12 +57,12 @@ const oscillationOperator: Operator = (state) => {
 }
 
 const basinDetectionOperator: Operator = (state, _params, dt) => {
-  const targetProbes = 260
+  const targetProbes = 222
   const step = Math.max(0.003, dt * 0.6)
   const alpha = 0.3
 
   while (state.probes.length < targetProbes) {
-    state.probes.push(randomProbe(state.globals.seed, state.globals.tick, state.probes.length + 1))
+    state.probes.push(randomProbe(state, state.probes.length + 1))
   }
 
   if (state.probes.length > targetProbes) {
@@ -56,14 +71,20 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
 
   for (let i = 0; i < state.probes.length; i += 1) {
     const p = state.probes[i]
+    p.prevX = p.x
+    p.prevY = p.y
     const gradE = computeEnergyGradient(state, [p.x, p.y])
     const gradD = computeDensityGradient(state, [p.x, p.y])
 
     p.x += (-gradE[0] - alpha * gradD[0]) * step
     p.y += (-gradE[1] - alpha * gradD[1]) * step
+    p.speed = Math.hypot(p.x - p.prevX, p.y - p.prevY)
+    p.age += 1
+    p.trail.push([p.x, p.y])
+    if (p.trail.length > MAX_PROBE_TRAIL_POINTS) p.trail.shift()
 
     if (Math.abs(p.x) > DOMAIN || Math.abs(p.y) > DOMAIN) {
-      state.probes[i] = randomProbe(state.globals.seed, state.globals.tick, i + 1)
+      state.probes[i] = randomProbe(state, i + 1)
     }
   }
 
@@ -118,8 +139,8 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
 
 const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
   for (const basin of state.basins) {
-    if (basin.frames < 18) continue
-    if (basin.count < 25) continue
+    if (basin.frames < 10) continue
+    if (basin.count < 10) continue
 
     const exists = state.invariants.some(
       (inv) => Math.hypot(inv.position[0] - basin.x, inv.position[1] - basin.y) < 0.1
@@ -137,7 +158,7 @@ const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
       position: [basin.x, basin.y],
       strength: 0.5,
       dynamic: true,
-      energy: 0.2,
+      energy: 0.35,
       stability: 1
     }
 
@@ -154,7 +175,7 @@ const competitiveEcosystemOperator: Operator = (state, _params, _dt, context) =>
 
   for (const inv of dynamics) {
     intakeById[inv.id] = state.probes.filter(
-      (p) => Math.hypot(p.x - inv.position[0], p.y - inv.position[1]) < 0.2
+      (p) => Math.hypot(p.x - inv.position[0], p.y - inv.position[1]) < 0.3
     ).length
   }
 
@@ -166,10 +187,10 @@ const competitiveEcosystemOperator: Operator = (state, _params, _dt, context) =>
       if (dist >= 0.25) continue
 
       if (invA.energy >= invB.energy) {
-        invB.energy -= 0.02
+        invB.energy -= 0.008
         context.emit(event("SUPPRESSED", { invariantId: invB.id, relatedIds: [invA.id] }))
       } else {
-        invA.energy -= 0.02
+        invA.energy -= 0.008
         context.emit(event("SUPPRESSED", { invariantId: invA.id, relatedIds: [invB.id] }))
       }
     }
@@ -177,7 +198,7 @@ const competitiveEcosystemOperator: Operator = (state, _params, _dt, context) =>
 
   for (const inv of dynamics) {
     inv.energy += (intakeById[inv.id] ?? 0) * 0.001
-    inv.energy -= 0.005
+    inv.energy -= 0.002
     inv.strength = 0.3 + inv.energy * 2
     inv.stability = Math.max(0, Math.min(1, inv.energy / 0.8))
 
@@ -197,16 +218,18 @@ const selectionPressureOperator: Operator = (state, _params, _dt, context) => {
 
   for (const inv of dynamics) {
     intakeById[inv.id] = state.probes.filter(
-      (p) => Math.hypot(p.x - inv.position[0], p.y - inv.position[1]) < 0.2
+      (p) => Math.hypot(p.x - inv.position[0], p.y - inv.position[1]) < 0.3
     ).length
   }
 
   const totalIntake = dynamics.reduce((sum, inv) => sum + (intakeById[inv.id] ?? 0), 0)
+  const equalShare = dynamics.length > 0 ? 1 / dynamics.length : 0
 
   for (const inv of dynamics) {
-    const share = (intakeById[inv.id] ?? 0) / (totalIntake || 1)
+    const intakeShare = (intakeById[inv.id] ?? 0) / (totalIntake || 1)
+    const share = 0.7 * intakeShare + 0.3 * equalShare
     inv.energy += share * budget
-    inv.energy -= 0.005
+    inv.energy -= 0.002
 
     const safeEnergy = Math.max(0, inv.energy)
     inv.strength = 1.5 * (safeEnergy / (1 + safeEnergy))
@@ -217,7 +240,70 @@ const selectionPressureOperator: Operator = (state, _params, _dt, context) => {
     }
   }
 
+  const totalStrength = dynamics.reduce((sum, inv) => sum + Math.max(0, inv.strength), 0)
+  for (const inv of dynamics) {
+    const dominanceShare = totalStrength > 1e-6 ? Math.max(0, inv.strength) / totalStrength : 0
+    if (dominanceShare > 0.45) {
+      inv.energy = Math.max(0, inv.energy - (dominanceShare - 0.45) * 0.08)
+    }
+  }
+
   state.invariants = state.invariants.filter((inv) => !inv.dynamic || inv.energy >= 0)
+}
+
+const budgetRegulatorOperator: Operator = (state, _params, dt) => {
+  const dynamics = dynamicInvariants(state)
+  if (dynamics.length === 0) return
+
+  const totalEnergy = dynamics.reduce((sum, inv) => sum + Math.max(0, inv.energy), 0)
+  const metrics = computeMetrics(state)
+  const alignment = evaluateAlignment(metrics)
+  const controlProfile = deriveAlignmentControl(alignment)
+
+  const error = totalEnergy - state.globals.budget
+  const EPSILON = 0.02 * controlProfile.deadbandScale
+  const KP = 0.2 * controlProfile.budgetGainScale
+  const KI = 0.03 * controlProfile.budgetGainScale
+
+  if (Math.abs(error) < EPSILON) {
+    state.globals.regulatorIntegral *= 0.96
+    return
+  }
+
+  state.globals.regulatorIntegral += error * dt
+  state.globals.regulatorIntegral = Math.max(-50, Math.min(50, state.globals.regulatorIntegral))
+  const control = KP * error + KI * state.globals.regulatorIntegral
+  const fallbackShare = 1 / dynamics.length
+
+  const inverseTotal = dynamics.reduce(
+    (sum, candidate) => sum + 1 / (Math.max(0.01, candidate.energy) + 0.05),
+    0
+  )
+
+  for (const inv of dynamics) {
+    const removalShare = totalEnergy > 1e-6 ? Math.max(0, inv.energy) / totalEnergy : fallbackShare
+    const inverseWeight = 1 / (Math.max(0.01, inv.energy) + 0.05)
+    const inverseShare = inverseTotal > 1e-6 ? inverseWeight / inverseTotal : fallbackShare
+    const additionShare = inverseShare * controlProfile.equityBoost + fallbackShare * (1 - controlProfile.equityBoost)
+
+    if (control >= 0) {
+      inv.energy = Math.max(0, inv.energy - control * removalShare)
+    } else {
+      inv.energy = Math.max(0, inv.energy - control * additionShare)
+    }
+    inv.strength = 1.5 * (inv.energy / (1 + inv.energy))
+    inv.stability = Math.max(0, Math.min(1, inv.energy / 0.8))
+  }
+
+  const totalStrength = dynamics.reduce((sum, inv) => sum + Math.max(0, inv.strength), 0)
+  for (const inv of dynamics) {
+    const dominanceShare = totalStrength > 1e-6 ? Math.max(0, inv.strength) / totalStrength : 0
+    if (dominanceShare <= controlProfile.dominanceTarget) continue
+    inv.energy = Math.max(
+      0,
+      inv.energy - (dominanceShare - controlProfile.dominanceTarget) * controlProfile.dominancePenalty
+    )
+  }
 }
 
 export const Stage1: StagePreset = {
@@ -279,7 +365,8 @@ export const Stage5: StagePreset = {
     basinDetectionOperator,
     emergentPromotionOperator,
     competitiveEcosystemOperator,
-    selectionPressureOperator
+    selectionPressureOperator,
+    budgetRegulatorOperator
   ]
 }
 

@@ -13,6 +13,13 @@ function ageOf(entry: RegistryEntry, tick: number): number {
   return (entry.deathTick ?? tick) - entry.birthTick
 }
 
+function agePhase(age: number): string {
+  if (age < 60) return "spark"
+  if (age < 140) return "bloom"
+  if (age < 260) return "mature"
+  return "elder"
+}
+
 function energyStyle(energy: number) {
   const eNorm = Math.max(0, Math.min(1, energy / 25))
   const hue = 210 - eNorm * 165
@@ -34,6 +41,7 @@ export default function HUDRegistry({ entries, tick }: Props) {
         {top.map((entry) => {
           const age = ageOf(entry, tick)
           const energy = latestEnergy(entry)
+          const phase = agePhase(age)
           const { chip, bar } = energyStyle(energy)
           const ageWidth = `${Math.max(4, Math.min(100, (age / 250) * 100))}%`
 
@@ -45,6 +53,7 @@ export default function HUDRegistry({ entries, tick }: Props) {
                 <span>E {energy.toFixed(3)}</span>
                 <span>age {age}</span>
               </div>
+              <div className={`age-phase age-phase-${phase}`}>{phase}</div>
               <div className="registry-bars">
                 <div className="bar-track">
                   <div className="bar-energy" style={{ width: bar, backgroundColor: chip }} />

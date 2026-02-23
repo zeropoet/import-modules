@@ -81,6 +81,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     function render() {
       const activePreset = presetRef.current
       const sim = simRef.current
+      sim.globals.viewportMinPx = Math.min(width, height)
       stepSimulation(sim, activePreset, 0.008)
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
@@ -130,11 +131,34 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       ctx.restore()
 
       if (activePreset.showProbes) {
-        ctx.fillStyle = "rgba(255, 255, 255, 0.85)"
         for (const p of sim.probes) {
           const sx = p.x / bounds.scale + bounds.cx
           const sy = p.y / bounds.scale + bounds.cy
-          ctx.fillRect(sx, sy, 2, 2)
+          const speedNorm = Math.max(0, Math.min(1, p.speed / 0.018))
+          const ageNorm = Math.max(0, Math.min(1, p.age / 450))
+          const hue = 210 - speedNorm * 165
+          const lightness = 48 + speedNorm * 26
+          const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
+          const size = 1.3 + speedNorm * 1.8 + ageNorm * 3.2
+
+          for (let i = 1; i < p.trail.length; i += 1) {
+            const prev = p.trail[i - 1]
+            const curr = p.trail[i]
+            const trailT = i / (p.trail.length - 1 || 1)
+            const segAlpha = alpha * trailT * (0.85 - ageNorm * 0.35)
+            const segWidth = (0.5 + speedNorm * 1.1) * trailT
+
+            ctx.beginPath()
+            ctx.moveTo(prev[0] / bounds.scale + bounds.cx, prev[1] / bounds.scale + bounds.cy)
+            ctx.lineTo(curr[0] / bounds.scale + bounds.cx, curr[1] / bounds.scale + bounds.cy)
+            ctx.strokeStyle = `hsla(${hue}, 90%, ${lightness}%, ${segAlpha})`
+            ctx.lineWidth = segWidth
+            ctx.stroke()
+          }
+
+          const headAlpha = Math.max(0.1, alpha * (0.95 - ageNorm * 0.55))
+          ctx.fillStyle = `hsla(${hue}, 96%, ${lightness + 4}%, ${headAlpha})`
+          ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
         }
       }
 
@@ -144,7 +168,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         for (const basin of basinNodes) {
           const sx = basin.x / bounds.scale + bounds.cx
           const sy = basin.y / bounds.scale + bounds.cy
-          const radius = Math.min(8, 2 + basin.count * 0.25)
+          const radius = Math.min(26, 2.2 + basin.count * 0.62)
 
           ctx.beginPath()
           ctx.arc(sx, sy, radius, 0, Math.PI * 2)
@@ -163,8 +187,12 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         const age = sim.globals.tick - (registryById.get(inv.id)?.birthTick ?? sim.globals.tick)
         const energyNorm = Math.max(0, Math.min(1, inv.energy / 25))
         const ageNorm = Math.max(0, Math.min(1, age / 250))
-        const hue = 210 - energyNorm * 165
-        const radius = 3 + inv.stability * 3 + energyNorm * 3
+        const ageWindow = 110
+        const agePhase = (age % ageWindow) / ageWindow
+        const ageEpoch = Math.floor(age / ageWindow)
+        const hue = 210 - energyNorm * 165 + ageEpoch * 9 + agePhase * 14
+        const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
+        const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
 
         ctx.beginPath()
@@ -182,6 +210,28 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         ctx.arc(sx, sy, Math.max(1.2, radius * 0.35), 0, Math.PI * 2)
         ctx.fillStyle = `hsla(${hue}, 88%, 64%, 0.8)`
         ctx.fill()
+
+        if (ageNorm > 0.18) {
+          const haloRadius = radius + 4 + ageNorm * 5
+          const start = agePhase * Math.PI * 2
+          const sweep = Math.PI * (0.55 + ageNorm * 0.75)
+          ctx.beginPath()
+          ctx.arc(sx, sy, haloRadius, start, start + sweep)
+          ctx.strokeStyle = `hsla(${hue + 22}, 84%, 72%, ${0.18 + ageNorm * 0.32})`
+          ctx.lineWidth = 0.8 + ageNorm * 1.1
+          ctx.stroke()
+        }
+
+        if (ageNorm > 0.58) {
+          const orbitRadius = radius + 8 + ageNorm * 4
+          const orbitTheta = sim.globals.time * 1.3 + age * 0.05
+          const ox = sx + Math.cos(orbitTheta) * orbitRadius
+          const oy = sy + Math.sin(orbitTheta) * orbitRadius
+          ctx.beginPath()
+          ctx.arc(ox, oy, 1.1 + breath * 0.9, 0, Math.PI * 2)
+          ctx.fillStyle = `hsla(${hue + 35}, 92%, 74%, ${0.26 + ageNorm * 0.45})`
+          ctx.fill()
+        }
 
         if (topDynamicIds.has(inv.id)) {
           ctx.fillStyle = "rgba(240, 246, 255, 0.95)"

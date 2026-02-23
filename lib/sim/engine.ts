@@ -36,6 +36,7 @@ function createAnchor(id: string, position: [number, number]): SimInvariant {
 }
 
 export function createSimulationState(seed: number): SimState {
+  const initialBudget = 0.3
   const anchors = [createAnchor("B", [-0.5, 0]), createAnchor("Ci", [0.5, 0])]
   const registry = createRegistry()
 
@@ -49,7 +50,9 @@ export function createSimulationState(seed: number): SimState {
       tick: 0,
       time: 0,
       seed,
-      budget: 0.3,
+      budget: initialBudget,
+      regulatorIntegral: 0,
+      viewportMinPx: 1000,
       domainRadius: 1,
       constitutionHash: CONSTITUTION_HASH,
       energyEnabled: false
@@ -58,12 +61,13 @@ export function createSimulationState(seed: number): SimState {
     events: [],
     metrics: {
       totalEnergy: 0,
-      budget: 0.3,
-      conservedDelta: -0.3,
+      budget: initialBudget,
+      conservedDelta: -initialBudget,
       livingInvariants: 0,
       entropySpread: 0,
       dominanceIndex: 0,
-      basinOccupancyStability: 0
+      basinOccupancyStability: 0,
+      alignmentScore: 0
     }
   }
 
@@ -104,7 +108,7 @@ export function stepSimulation(state: SimState, preset: StagePreset, dt: number)
   const step = compose(preset.operators)
   step(
     state,
-    { presetId: preset.id, maxInvariants: 150 },
+    { presetId: preset.id, maxInvariants: 589 },
     dt,
     {
       emit: (partialEvent) => {
