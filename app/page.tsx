@@ -1,41 +1,107 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Canvas from "@/components/Canvas"
-import { Stage, Stage0, Stage1B, Stage2, Stage3, Stage4, Stage5 } from "@/lib/stage"
+import HUDMetrics from "@/components/HUDMetrics"
+import HUDRegistry from "@/components/HUDRegistry"
+import HUDSchema from "@/components/HUDSchema"
+import { stagePresets } from "@/lib/operators/stagePresets"
+import type { RegistryEntry, SimMetrics } from "@/lib/state/types"
+
+function randomSeed(): number {
+  return Math.floor(Math.random() * 1_000_000_000)
+}
+
+type Telemetry = {
+  tick: number
+  metrics: SimMetrics
+  registryEntries: RegistryEntry[]
+  eventCount: number
+}
+
+const EMPTY_METRICS: SimMetrics = {
+  totalEnergy: 0,
+  budget: 0,
+  conservedDelta: 0,
+  livingInvariants: 0,
+  entropySpread: 0,
+  dominanceIndex: 0,
+  basinOccupancyStability: 0
+}
+
+const DEFAULT_SEED = 424242
 
 export default function Home() {
-  const stages = useMemo(
-    () =>
-      [
-        { id: Stage0.id, label: "Stage 0 - Closure", stage: Stage0 },
-        { id: Stage1B.id, label: "Stage 1B - Oscillating Energy", stage: Stage1B },
-        { id: Stage2.id, label: "Stage 2 - Basin Detection", stage: Stage2 },
-        { id: Stage3.id, label: "Stage 3 - Emergent Promotion", stage: Stage3 },
-        { id: Stage4.id, label: "Stage 4 - Competitive Ecosystem", stage: Stage4 },
-        { id: Stage5.id, label: "Stage 5 - Selection Pressure", stage: Stage5 }
-      ] satisfies Array<{ id: string; label: string; stage: Stage }>,
-    []
-  )
-  const [selectedStageId, setSelectedStageId] = useState<string>(Stage5.id)
-  const selectedStage = stages.find((entry) => entry.id === selectedStageId)?.stage ?? Stage5
+  const selectedPreset = stagePresets[stagePresets.length - 1]
+  const [seedInput, setSeedInput] = useState(() => String(DEFAULT_SEED))
+  const [activeSeed, setActiveSeed] = useState(DEFAULT_SEED)
+  const [telemetry, setTelemetry] = useState<Telemetry>({
+    tick: 0,
+    metrics: EMPTY_METRICS,
+    registryEntries: [],
+    eventCount: 0
+  })
+
+  useEffect(() => {
+    const nextSeed = randomSeed()
+    setSeedInput(String(nextSeed))
+    setActiveSeed(nextSeed)
+  }, [])
+
+  function applySeedFromInput() {
+    const parsed = Number.parseInt(seedInput, 10)
+    if (!Number.isFinite(parsed)) return
+    setActiveSeed(parsed)
+  }
+
+  async function copySeed() {
+    try {
+      await navigator.clipboard.writeText(String(activeSeed))
+    } catch {
+      // Clipboard can be unavailable in some browser contexts.
+    }
+  }
 
   return (
-    <main style={{ width: "100vw", height: "100vh", overflow: "hidden" }}>
-      <div style={{ position: "fixed", top: 12, left: 12, zIndex: 10 }}>
-        <select
-          aria-label="Select stage"
-          value={selectedStageId}
-          onChange={(event) => setSelectedStageId(event.target.value)}
-        >
-          {stages.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.label}
-            </option>
-          ))}
-        </select>
+    <main className="shell">
+      <div className="panel control-panel">
+        <h2>Constitutional Field</h2>
+        <p className="description">
+          Active Constitution: <strong>ØVEL x Void Architecture</strong>
+        </p>
+        <p className="description">Invariant: ØVEL</p>
+
+        <label>
+          Seed (record/replay)
+          <input
+            value={seedInput}
+            onChange={(event) => setSeedInput(event.target.value)}
+            inputMode="numeric"
+            aria-label="Simulation seed"
+          />
+        </label>
+
+        <div className="button-row">
+          <button type="button" onClick={applySeedFromInput}>
+            Apply Seed
+          </button>
+          <button type="button" onClick={copySeed}>
+            Copy Active Seed
+          </button>
+        </div>
+
+        <p className="active-seed">Active Seed: {activeSeed}</p>
+        <p className="active-seed">Tick: {telemetry.tick}</p>
+        <p className="active-seed">Events this frame: {telemetry.eventCount}</p>
       </div>
-      <Canvas stage={selectedStage} />
+
+      <div className="hud-right">
+        <HUDSchema />
+        <HUDMetrics metrics={telemetry.metrics} />
+        <HUDRegistry entries={telemetry.registryEntries} tick={telemetry.tick} />
+      </div>
+
+      <Canvas preset={selectedPreset} seed={activeSeed} onTelemetry={setTelemetry} />
     </main>
   )
 }
