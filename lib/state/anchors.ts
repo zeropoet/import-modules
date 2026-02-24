@@ -6,7 +6,7 @@ export type AnchorSpec = {
 
 // Keep this toggle to compare baseline vs extended constitutional anchor sets.
 export const USE_EXTENDED_ANCHORS = true
-export const USE_R90_ANCHORS = false
+export const USE_R90_ANCHORS = true
 
 export function getConfiguredAnchors(): AnchorSpec[] {
   const base: AnchorSpec[] = [

@@ -180,6 +180,12 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       ctx.fillStyle = coreGradient
       ctx.fill()
 
+      ctx.beginPath()
+      ctx.arc(bounds.cx, bounds.cy, centerForceRadiusPx, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(239, 68, 68, ${0.24 + centerForceNorm * 0.34})`
+      ctx.lineWidth = 1.2
+      ctx.stroke()
+
       if (activePreset.showProbes) {
         for (const p of sim.probes) {
           const sx = p.x / bounds.scale + bounds.cx
