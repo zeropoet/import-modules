@@ -75,12 +75,14 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     let height = 1
     let rafId = 0
     let telemetryCounter = 0
+    let lastFrameTime = 0
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1
-      const rect = el.getBoundingClientRect()
-      width = Math.max(1, Math.floor(rect.width))
-      height = Math.max(1, Math.floor(rect.height))
+      const viewportW = window.visualViewport?.width ?? window.innerWidth
+      const viewportH = window.visualViewport?.height ?? window.innerHeight
+      width = Math.max(1, Math.floor(viewportW))
+      height = Math.max(1, Math.floor(viewportH))
       el.width = Math.floor(width * dpr)
       el.height = Math.floor(height * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -93,7 +95,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       }
     }
 
-    function render() {
+    function render(now: number) {
       const activePreset = presetRef.current
       const sim = simRef.current
       const bounds = getWorldBounds(width, height)
@@ -102,7 +104,10 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       sim.globals.worldOverflow = WORLD_OVERFLOW_PX * bounds.scale
       sim.globals.worldHalfW = bounds.halfW
       sim.globals.worldHalfH = bounds.halfH
-      stepSimulation(sim, activePreset, 0.008)
+      const frameMs = lastFrameTime > 0 ? now - lastFrameTime : 16.6667
+      lastFrameTime = now
+      const normalizedFrame = Math.max(0.5, Math.min(2, frameMs / 16.6667))
+      stepSimulation(sim, activePreset, 0.008 * normalizedFrame)
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
       const anchorRadiusWorld = sim.anchors.reduce(
@@ -483,13 +488,15 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
     resizeCanvas()
     window.addEventListener("resize", resizeCanvas)
-    render()
+    window.visualViewport?.addEventListener("resize", resizeCanvas)
+    rafId = requestAnimationFrame(render)
 
     return () => {
       cancelAnimationFrame(rafId)
       window.removeEventListener("resize", resizeCanvas)
+      window.visualViewport?.removeEventListener("resize", resizeCanvas)
     }
   }, [onTelemetry])
 
-  return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", display: "block" }} />
+  return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100vw", height: "100dvh", display: "block" }} />
 }

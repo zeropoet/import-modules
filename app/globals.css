@@ -17,15 +17,16 @@ body {
 .shell {
   position: relative;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
 }
 
 .center-logo-wrap {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  display: grid;
+  place-items: center;
   width: min(20vw, 220px);
+  margin: auto;
   z-index: 9;
   pointer-events: none;
   opacity: 0.42;
@@ -84,7 +85,7 @@ body {
 }
 
 .panel-registry .drop-content {
-  max-height: min(42vh, calc(100vh - 260px));
+  max-height: min(42dvh, calc(100dvh - 260px));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -486,11 +487,11 @@ body {
 @media (max-width: 700px) {
   .bottom-dock {
     grid-template-columns: 1fr;
-    max-height: 58vh;
+    max-height: 58dvh;
     overflow-y: auto;
   }
 
   .panel-registry .drop-content {
-    max-height: min(36vh, calc(100vh - 300px));
+    max-height: min(36dvh, calc(100dvh - 300px));
   }
 }
