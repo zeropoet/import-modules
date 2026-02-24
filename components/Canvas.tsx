@@ -479,7 +479,6 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       for (const inv of dynamicInvariants) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy
-        const flameLinked = flameLinkedWorldIds.has(inv.id)
         const age = sim.globals.tick - (registryById.get(inv.id)?.birthTick ?? sim.globals.tick)
         const distressRemaining = Math.max(0, (inv.distressUntilTick ?? sim.globals.tick) - sim.globals.tick)
         const distressed = distressRemaining > 0
@@ -487,36 +486,24 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         const ageNorm = Math.max(0, Math.min(1, age / 250))
         const ageWindow = 110
         const agePhase = (age % ageWindow) / ageWindow
-        const ageEpoch = Math.floor(age / ageWindow)
-        const baseHue = 210 - energyNorm * 165 + ageEpoch * 9 + agePhase * 14
-        const flameHue = 14 + energyNorm * 42
-        const hue = distressed ? 18 + Math.sin(sim.globals.time * 8 + age * 0.08) * 10 : flameLinked ? flameHue : baseHue
         const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
         const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
 
         ctx.beginPath()
         ctx.arc(sx, sy, radius + 2, 0, Math.PI * 2)
-        ctx.fillStyle = distressed
-          ? `hsla(${hue}, 96%, 58%, 0.33)`
-          : flameLinked
-            ? `hsla(${hue}, 96%, 50%, 0.28)`
-            : `hsla(${hue}, 82%, 56%, 0.22)`
+        ctx.fillStyle = distressed ? "rgba(255, 255, 255, 0.36)" : "rgba(255, 255, 255, 0.28)"
         ctx.fill()
 
         ctx.beginPath()
         ctx.arc(sx, sy, radius, 0, Math.PI * 2)
-        ctx.strokeStyle = `hsla(${hue}, 90%, 70%, 0.96)`
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.96)"
         ctx.lineWidth = lineWidth
         ctx.stroke()
 
         ctx.beginPath()
         ctx.arc(sx, sy, Math.max(1.2, radius * 0.35), 0, Math.PI * 2)
-        ctx.fillStyle = distressed
-          ? `hsla(${hue + 8}, 100%, 66%, 0.92)`
-          : flameLinked
-            ? `hsla(${hue + 10}, 100%, 72%, 0.94)`
-            : `hsla(${hue}, 88%, 64%, 0.8)`
+        ctx.fillStyle = distressed ? "rgba(255, 255, 255, 0.98)" : "rgba(255, 255, 255, 0.88)"
         ctx.fill()
 
         if (heliosLatticeActive || ageNorm > 0.18) {
@@ -528,14 +515,14 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           // Elder boundary ring; in Helios state this becomes persistent for every world.
           ctx.beginPath()
           ctx.arc(sx, sy, haloRadius, 0, Math.PI * 2)
-          ctx.strokeStyle = `hsla(${hue + 10}, 82%, 70%, ${haloAlpha * 0.34})`
+          ctx.strokeStyle = `rgba(255, 255, 255, ${haloAlpha * 0.34})`
           ctx.lineWidth = 0.9 + ageNorm * (heliosLatticeActive ? 1 : 0.7)
           ctx.stroke()
 
           if (!heliosLatticeActive) {
             ctx.beginPath()
             ctx.arc(sx, sy, haloRadius, start, start + sweep)
-            ctx.strokeStyle = `hsla(${hue + 14}, 86%, 74%, ${haloAlpha})`
+            ctx.strokeStyle = `rgba(255, 255, 255, ${haloAlpha})`
             ctx.lineWidth = 0.9 + ageNorm * 1
             ctx.stroke()
           }
@@ -548,7 +535,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           const oy = sy + Math.sin(orbitTheta) * orbitRadius
           ctx.beginPath()
           ctx.arc(ox, oy, 1.1 + breath * 0.9, 0, Math.PI * 2)
-          ctx.fillStyle = `hsla(${hue + 35}, 92%, 74%, ${0.26 + ageNorm * 0.45})`
+          ctx.fillStyle = `rgba(255, 255, 255, ${0.26 + ageNorm * 0.45})`
           ctx.fill()
         }
 
