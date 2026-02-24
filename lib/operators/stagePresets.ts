@@ -1,12 +1,41 @@
 import { event, type Operator, type StagePreset } from "@/lib/operators/types"
 import { getConfiguredAnchors } from "@/lib/state/anchors"
-import type { Basin, ProbeParticle, SimInvariant, SimState } from "@/lib/state/types"
+import type { Basin, ProbeParticle, SimInvariant, SimState, Vec2 } from "@/lib/state/types"
 import { clusterPoints, computeDensityGradient, computeEnergyGradient, dynamicInvariants } from "@/lib/sim/math"
 import { computeMetrics } from "@/lib/metrics"
 import { deriveAlignmentControl, evaluateAlignment } from "@/lib/alignment/controller"
 
 const MAX_PROBE_TRAIL_POINTS = 20
 const RESPAWN_RADIUS_PX = 100
+const SANCTUARY_SUPPORT_RADIUS = 0.36
+const SANCTUARY_BASE_PULL = 0.0008
+const SANCTUARY_MAX_PULL = 0.007
+const SANCTUARY_EDGE_SOFT_START = 0.7
+const SANCTUARY_INV_BASE_PULL = 0.004
+const SANCTUARY_INV_MAX_PULL = 0.042
+const DISTRESS_GRACE_TICKS = 72
+const DISTRESS_RECOVERY_THRESHOLD = 0.04
+const ENABLE_CLUSTER_EXTRAS = false
+const CLUSTER_LINK_RADIUS = 0.23
+const CLUSTER_TARGET_RING = 0.065
+const CLUSTER_COHESION_GAIN = 0.022
+const CLUSTER_SWIRL_GAIN = 0.0012
+const CLUSTER_REPULSION_RADIUS = 0.08
+const CLUSTER_REPULSION_GAIN = 0.0018
+const CLUSTER_B = CLUSTER_SWIRL_GAIN
+const CLUSTER_CI = CLUSTER_COHESION_GAIN
+const DYNAMIC_CLUSTER_SOFT_CAP = 12
+const DYNAMIC_CLUSTER_SIZE_CEILING = 18
+const DYNAMIC_CLUSTER_ENERGY_PER_NODE_CEILING = 0.85
+const DYNAMIC_CLUSTER_SHEAR_GAIN = 0.0022
+const DYNAMIC_CLUSTER_DRAIN_GAIN = 0.012
+const DYNAMIC_CLUSTER_HARVEST_TO_BUDGET = 0.35
+const DYNAMIC_CLUSTER_BUDGET_MAX = 1.4
+const HELIOS_LATTICE_WORLD_CAP = 64
+const TARGET_PARTICLES = 324
+const ANCHOR_EXCLUSION_RADIUS = 0.13
+const ANCHOR_EXCLUSION_PROBE_FORCE = 0.008
+const ANCHOR_EXCLUSION_WORLD_FORCE = 0.022
 
 function seededUnit(seed: number, salt: number): number {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
@@ -18,12 +47,23 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
   const localDomainRadius =
     Math.min(state.globals.worldHalfW, state.globals.worldHalfH) + state.globals.worldOverflow
   const respawnRadiusWorld = Math.min(localDomainRadius, (RESPAWN_RADIUS_PX * 2) / viewportMin)
+  const spawnedInvariants = dynamicInvariants(state)
+  let spawnOriginX = 0
+  let spawnOriginY = 0
+  if (spawnedInvariants.length > 0) {
+    const spawnIndex = Math.floor(
+      seededUnit(state.globals.seed, state.globals.tick * 113 + salt * 17) * spawnedInvariants.length
+    )
+    const spawnInvariant = spawnedInvariants[Math.min(spawnedInvariants.length - 1, spawnIndex)]
+    spawnOriginX = spawnInvariant.position[0]
+    spawnOriginY = spawnInvariant.position[1]
+  }
   const radius =
     Math.sqrt(seededUnit(state.globals.seed, state.globals.tick * 131 + salt * 29)) *
     respawnRadiusWorld
   const theta = seededUnit(state.globals.seed, state.globals.tick * 149 + salt * 31) * Math.PI * 2
-  const px = Math.cos(theta) * radius
-  const py = Math.sin(theta) * radius
+  const px = spawnOriginX + Math.cos(theta) * radius
+  const py = spawnOriginY + Math.sin(theta) * radius
   const mass = 0.6 + seededUnit(state.globals.seed, state.globals.tick * 173 + salt * 37) * 1.6
   return {
     x: px,
@@ -36,6 +76,261 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
     speed: 0,
     age: 0,
     trail: [[px, py]]
+  }
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
+function nearestSupportPoint(state: SimState, x: number, y: number): { point: Vec2; distance: number } {
+  let bestPoint: Vec2 = [0, 0]
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const anchor of state.anchors) {
+    const dx = anchor.position[0] - x
+    const dy = anchor.position[1] - y
+    const dist = Math.hypot(dx, dy)
+    if (dist < bestDistance) {
+      bestDistance = dist
+      bestPoint = anchor.position
+    }
+  }
+
+  if (!Number.isFinite(bestDistance)) {
+    return { point: [0, 0], distance: Math.hypot(x, y) }
+  }
+  return { point: bestPoint, distance: bestDistance }
+}
+
+function dynamicClusters(state: SimState): SimInvariant[][] {
+  const dynamics = dynamicInvariants(state)
+  if (dynamics.length === 0) return []
+
+  const visited = new Set<string>()
+  const clusters: SimInvariant[][] = []
+
+  for (let i = 0; i < dynamics.length; i += 1) {
+    const root = dynamics[i]
+    if (visited.has(root.id)) continue
+
+    const queue = [root]
+    const members: SimInvariant[] = []
+    visited.add(root.id)
+
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (!current) continue
+      members.push(current)
+
+      for (const candidate of dynamics) {
+        if (visited.has(candidate.id)) continue
+        const dist = Math.hypot(
+          candidate.position[0] - current.position[0],
+          candidate.position[1] - current.position[1]
+        )
+        if (dist <= CLUSTER_LINK_RADIUS) {
+          visited.add(candidate.id)
+          queue.push(candidate)
+        }
+      }
+    }
+
+    clusters.push(members)
+  }
+
+  return clusters
+}
+
+function dynamicWorldCount(state: SimState): number {
+  return dynamicInvariants(state).length
+}
+
+function anchorExclusionForce(state: SimState, x: number, y: number, gain: number, dtNorm: number): Vec2 {
+  let fx = 0
+  let fy = 0
+
+  for (const anchor of state.anchors) {
+    const dx = x - anchor.position[0]
+    const dy = y - anchor.position[1]
+    const dist = Math.hypot(dx, dy) || 1
+    if (dist >= ANCHOR_EXCLUSION_RADIUS) continue
+    const push = ((ANCHOR_EXCLUSION_RADIUS - dist) / ANCHOR_EXCLUSION_RADIUS) * gain * dtNorm
+    fx += (dx / dist) * push
+    fy += (dy / dist) * push
+  }
+
+  return [fx, fy]
+}
+
+function probeSanctuaryForce(state: SimState, p: ProbeParticle, dt: number): Vec2 {
+  const nearest = nearestSupportPoint(state, p.x, p.y)
+  const radial = Math.hypot(p.x, p.y) / Math.max(0.001, state.globals.domainRadius)
+  const supportLoss = clamp01((nearest.distance - SANCTUARY_SUPPORT_RADIUS) / 0.85)
+  const edgeLoss = clamp01((radial - SANCTUARY_EDGE_SOFT_START) / (1 - SANCTUARY_EDGE_SOFT_START))
+  const lostness = clamp01(Math.max(supportLoss, edgeLoss))
+  if (lostness <= 1e-5) return [0, 0]
+
+  const tx = nearest.point[0] - p.x
+  const ty = nearest.point[1] - p.y
+  const dist = Math.hypot(tx, ty) || 1
+  const pull = (SANCTUARY_BASE_PULL + (SANCTUARY_MAX_PULL - SANCTUARY_BASE_PULL) * lostness) * dt * 60
+  return [(tx / dist) * pull, (ty / dist) * pull]
+}
+
+function sanctuaryFieldOperator(state: SimState): void {
+  const dynamics = dynamicInvariants(state)
+  if (dynamics.length === 0) return
+
+  for (const inv of dynamics) {
+    const nearest = nearestSupportPoint(state, inv.position[0], inv.position[1])
+    const intake = state.probes.filter(
+      (p) => Math.hypot(p.x - inv.position[0], p.y - inv.position[1]) < 0.32
+    ).length
+    const radial = Math.hypot(inv.position[0], inv.position[1]) / Math.max(0.001, state.globals.domainRadius)
+    const supportLoss = clamp01((nearest.distance - SANCTUARY_SUPPORT_RADIUS) / 0.9)
+    const intakeLoss = clamp01(1 - intake / 10)
+    const edgeLoss = clamp01((radial - SANCTUARY_EDGE_SOFT_START) / (1 - SANCTUARY_EDGE_SOFT_START))
+    const lostness = clamp01(Math.max(supportLoss, intakeLoss * 0.75, edgeLoss))
+    if (lostness <= 1e-5) continue
+
+    const lerp = SANCTUARY_INV_BASE_PULL + (SANCTUARY_INV_MAX_PULL - SANCTUARY_INV_BASE_PULL) * lostness
+    inv.position[0] = inv.position[0] * (1 - lerp) + nearest.point[0] * lerp
+    inv.position[1] = inv.position[1] * (1 - lerp) + nearest.point[1] * lerp
+
+    const exclusion = anchorExclusionForce(state, inv.position[0], inv.position[1], ANCHOR_EXCLUSION_WORLD_FORCE, 1)
+    inv.position[0] += exclusion[0]
+    inv.position[1] += exclusion[1]
+  }
+}
+
+const distressLifecycleOperator: Operator = (state, _params, _dt, context) => {
+  const deadIds = new Set<string>()
+
+  for (const inv of dynamicInvariants(state)) {
+    if (inv.energy >= DISTRESS_RECOVERY_THRESHOLD) {
+      if (inv.distressUntilTick !== undefined) {
+        inv.distressUntilTick = undefined
+        context.emit(event("RECOVERY", { invariantId: inv.id, reason: "energy recovered above distress threshold" }))
+      }
+      continue
+    }
+
+    if (inv.energy < 0) {
+      if (inv.distressUntilTick === undefined) {
+        inv.distressUntilTick = state.globals.tick + DISTRESS_GRACE_TICKS
+        context.emit(event("DISTRESS", { invariantId: inv.id, reason: "energy deficit; sanctuary grace window active" }))
+      }
+
+      if (state.globals.tick >= inv.distressUntilTick) {
+        deadIds.add(inv.id)
+        context.emit(event("STARVATION", { invariantId: inv.id }))
+        context.emit(event("DEATH", { invariantId: inv.id, reason: "distress timeout" }))
+      }
+    }
+  }
+
+  if (deadIds.size > 0) {
+    state.invariants = state.invariants.filter((inv) => !inv.dynamic || !deadIds.has(inv.id))
+  }
+}
+
+const clusteredSignatureOperator: Operator = (state, _params, dt) => {
+  const clusters = dynamicClusters(state)
+  if (clusters.length === 0) return
+  const dtNorm = dt * 60
+
+  for (const members of clusters) {
+    if (members.length < 2) continue
+
+    const centroidX = members.reduce((sum, inv) => sum + inv.position[0], 0) / members.length
+    const centroidY = members.reduce((sum, inv) => sum + inv.position[1], 0) / members.length
+    const ringBoost = ENABLE_CLUSTER_EXTRAS ? Math.min(0.08, (members.length - 2) * 0.014) : 0
+    const ring = CLUSTER_TARGET_RING + ringBoost
+    const spinSign = seededUnit(state.globals.seed, state.globals.tick * 17 + members.length * 31) > 0.5 ? 1 : -1
+
+    for (const inv of members) {
+      const dx = inv.position[0] - centroidX
+      const dy = inv.position[1] - centroidY
+      const dist = Math.hypot(dx, dy) || 1
+      const ux = dx / dist
+      const uy = dy / dist
+      const tx = -uy
+      const ty = ux
+
+      const ringCorrection = (ring - dist) * CLUSTER_CI * dtNorm
+      const swirlBoost = ENABLE_CLUSTER_EXTRAS ? members.length * 0.00025 : 0
+      const swirl = (CLUSTER_B + swirlBoost) * dtNorm * spinSign
+      let repulseX = 0
+      let repulseY = 0
+
+      if (ENABLE_CLUSTER_EXTRAS) {
+        for (const other of members) {
+          if (other.id === inv.id) continue
+          const ox = inv.position[0] - other.position[0]
+          const oy = inv.position[1] - other.position[1]
+          const od = Math.hypot(ox, oy) || 1
+          if (od >= CLUSTER_REPULSION_RADIUS) continue
+          const push =
+            ((CLUSTER_REPULSION_RADIUS - od) / CLUSTER_REPULSION_RADIUS) * CLUSTER_REPULSION_GAIN * dtNorm
+          repulseX += (ox / od) * push
+          repulseY += (oy / od) * push
+        }
+      }
+
+      inv.position[0] += ux * ringCorrection + tx * swirl + repulseX
+      inv.position[1] += uy * ringCorrection + ty * swirl + repulseY
+    }
+  }
+}
+
+const clusterCeilingOperator: Operator = (state, _params, dt, context) => {
+  const clusters = dynamicClusters(state)
+  if (clusters.length === 0) return
+
+  const dtNorm = dt * 60
+  let harvestedBudget = 0
+
+  for (const members of clusters) {
+    if (members.length < 2) continue
+
+    const totalEnergy = members.reduce((sum, inv) => sum + Math.max(0, inv.energy), 0)
+    const energyCeiling = members.length * DYNAMIC_CLUSTER_ENERGY_PER_NODE_CEILING
+    const sizePressure = clamp01(
+      (members.length - DYNAMIC_CLUSTER_SOFT_CAP) /
+        Math.max(1, DYNAMIC_CLUSTER_SIZE_CEILING - DYNAMIC_CLUSTER_SOFT_CAP)
+    )
+    const energyPressure = clamp01((totalEnergy - energyCeiling) / Math.max(0.001, energyCeiling))
+    const pressure = Math.max(sizePressure, energyPressure)
+    if (pressure <= 1e-5) continue
+
+    const centroidX = members.reduce((sum, inv) => sum + inv.position[0], 0) / members.length
+    const centroidY = members.reduce((sum, inv) => sum + inv.position[1], 0) / members.length
+    const shear = DYNAMIC_CLUSTER_SHEAR_GAIN * pressure * dtNorm
+
+    for (const inv of members) {
+      const dx = inv.position[0] - centroidX
+      const dy = inv.position[1] - centroidY
+      const dist = Math.hypot(dx, dy) || 1
+      inv.position[0] += (dx / dist) * shear
+      inv.position[1] += (dy / dist) * shear
+
+      const drain = Math.max(0, inv.energy) * DYNAMIC_CLUSTER_DRAIN_GAIN * pressure * dtNorm
+      inv.energy = Math.max(0, inv.energy - drain)
+      harvestedBudget += drain * DYNAMIC_CLUSTER_HARVEST_TO_BUDGET
+      inv.strength = 1.5 * (inv.energy / (1 + inv.energy))
+      inv.stability = Math.max(0, Math.min(1, inv.energy / 0.8))
+    }
+
+    context.emit(
+      event("SUPPRESSED", {
+        reason: `cluster ceiling pressure size=${members.length} pressure=${pressure.toFixed(2)}`
+      })
+    )
+  }
+
+  if (harvestedBudget > 0) {
+    state.globals.budget = Math.min(DYNAMIC_CLUSTER_BUDGET_MAX, state.globals.budget + harvestedBudget)
   }
 }
 
@@ -67,16 +362,18 @@ const oscillationOperator: Operator = (state) => {
 }
 
 const basinDetectionOperator: Operator = (state, _params, dt) => {
-  const targetProbes = 222
+  const worldCount = dynamicWorldCount(state)
+  const particleRespawnEnabled = worldCount < HELIOS_LATTICE_WORLD_CAP
+  const targetParticles = particleRespawnEnabled ? TARGET_PARTICLES : state.probes.length
   const step = Math.max(0.003, dt * 0.6)
   const alpha = 0.3
 
-  while (state.probes.length < targetProbes) {
+  while (state.probes.length < targetParticles) {
     state.probes.push(randomProbe(state, state.probes.length + 1))
   }
 
-  if (state.probes.length > targetProbes) {
-    state.probes.length = targetProbes
+  if (state.probes.length > targetParticles) {
+    state.probes.length = targetParticles
   }
 
   for (let i = 0; i < state.probes.length; i += 1) {
@@ -88,10 +385,18 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
     const massScale = 1 / Math.max(0.35, p.mass)
     const forceX = (-gradE[0] - alpha * gradD[0]) * step * massScale
     const forceY = (-gradE[1] - alpha * gradD[1]) * step * massScale
+    const sanctuaryForce = probeSanctuaryForce(state, p, dt)
+    const anchorExclusion = anchorExclusionForce(
+      state,
+      p.x,
+      p.y,
+      ANCHOR_EXCLUSION_PROBE_FORCE,
+      dt * 60
+    )
     const damping = 0.86 + Math.min(0.09, p.mass * 0.03)
 
-    p.vx = (p.vx + forceX) * damping
-    p.vy = (p.vy + forceY) * damping
+    p.vx = (p.vx + forceX + sanctuaryForce[0] + anchorExclusion[0]) * damping
+    p.vy = (p.vy + forceY + sanctuaryForce[1] + anchorExclusion[1]) * damping
     p.x += p.vx
     p.y += p.vy
     p.speed = Math.hypot(p.vx, p.vy)
@@ -103,7 +408,12 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
       Math.abs(p.x) > state.globals.worldHalfW + state.globals.worldOverflow ||
       Math.abs(p.y) > state.globals.worldHalfH + state.globals.worldOverflow
     ) {
-      state.probes[i] = randomProbe(state, i + 1)
+      if (particleRespawnEnabled) {
+        state.probes[i] = randomProbe(state, i + 1)
+      } else {
+        state.probes.splice(i, 1)
+        i -= 1
+      }
     }
   }
 
@@ -157,6 +467,9 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
 }
 
 const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
+  let worldCount = dynamicWorldCount(state)
+  if (worldCount >= HELIOS_LATTICE_WORLD_CAP) return
+
   for (const basin of state.basins) {
     if (basin.frames < 10) continue
     if (basin.count < 10) continue
@@ -165,6 +478,23 @@ const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
       (inv) => Math.hypot(inv.position[0] - basin.x, inv.position[1] - basin.y) < 0.1
     )
     if (exists || state.invariants.length >= params.maxInvariants) continue
+
+    const tooCloseToAnchor = state.anchors.some(
+      (anchor) => Math.hypot(anchor.position[0] - basin.x, anchor.position[1] - basin.y) < ANCHOR_EXCLUSION_RADIUS
+    )
+    if (tooCloseToAnchor) continue
+
+    const localDynamicClusterSize = dynamicInvariants(state).filter(
+      (inv) => Math.hypot(inv.position[0] - basin.x, inv.position[1] - basin.y) < CLUSTER_LINK_RADIUS
+    ).length
+    if (localDynamicClusterSize >= DYNAMIC_CLUSTER_SIZE_CEILING) {
+      context.emit(
+        event("SUPPRESSED", {
+          reason: `promotion blocked at cluster ceiling (${localDynamicClusterSize})`
+        })
+      )
+      continue
+    }
 
     const gradE = computeEnergyGradient(state, [basin.x, basin.y])
     const gradD = computeDensityGradient(state, [basin.x, basin.y])
@@ -182,9 +512,18 @@ const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
     }
 
     state.invariants.push(created)
+    worldCount += 1
     basin.promoted = true
     context.emit(event("PROMOTION", { invariantId: id, relatedIds: [basin.id] }))
-    context.emit(event("BIRTH", { invariantId: id, reason: "promoted from persistent basin" }))
+    context.emit(event("BIRTH", { invariantId: id, reason: "promoted from persistent particle basin into world" }))
+    if (worldCount >= HELIOS_LATTICE_WORLD_CAP) {
+      context.emit(
+        event("SUPPRESSED", {
+          reason: "helios lattice threshold reached (4x4x4); particle respawn disabled"
+        })
+      )
+      return
+    }
   }
 }
 
@@ -221,16 +560,10 @@ const competitiveEcosystemOperator: Operator = (state, _params, _dt, context) =>
     inv.strength = 0.3 + inv.energy * 2
     inv.stability = Math.max(0, Math.min(1, inv.energy / 0.8))
 
-    if (inv.energy < 0) {
-      context.emit(event("STARVATION", { invariantId: inv.id }))
-      context.emit(event("DEATH", { invariantId: inv.id, reason: "energy below zero" }))
-    }
   }
-
-  state.invariants = state.invariants.filter((inv) => !inv.dynamic || inv.energy >= 0)
 }
 
-const selectionPressureOperator: Operator = (state, _params, _dt, context) => {
+const selectionPressureOperator: Operator = (state, _params, _dt) => {
   const dynamics = dynamicInvariants(state)
   const intakeById: Record<string, number> = {}
   const budget = Math.max(0.05, state.globals.budget)
@@ -254,9 +587,6 @@ const selectionPressureOperator: Operator = (state, _params, _dt, context) => {
     inv.strength = 1.5 * (safeEnergy / (1 + safeEnergy))
     inv.stability = Math.max(0, Math.min(1, safeEnergy / 0.8))
 
-    if (inv.energy < 0) {
-      context.emit(event("DEATH", { invariantId: inv.id, reason: "selection pressure" }))
-    }
   }
 
   const totalStrength = dynamics.reduce((sum, inv) => sum + Math.max(0, inv.strength), 0)
@@ -267,7 +597,6 @@ const selectionPressureOperator: Operator = (state, _params, _dt, context) => {
     }
   }
 
-  state.invariants = state.invariants.filter((inv) => !inv.dynamic || inv.energy >= 0)
 }
 
 const budgetRegulatorOperator: Operator = (state, _params, dt) => {
@@ -348,7 +677,7 @@ export const Stage2: StagePreset = {
 export const Stage3: StagePreset = {
   id: "stage-3-basin-detection",
   label: "Stage 3 - Basin Detection",
-  description: "Adds probes and basin detection over oscillation.",
+  description: "Adds particles and basin detection over oscillation.",
   colorMode: "energy",
   showProbes: true,
   showBasins: true,
@@ -357,8 +686,8 @@ export const Stage3: StagePreset = {
 
 export const Stage4: StagePreset = {
   id: "stage-4-promotion-ecosystem",
-  label: "Stage 4 - Promotion + Ecosystem",
-  description: "Promotes persistent basins and introduces local competition.",
+  label: "Stage 4 - World Emergence + Ecosystem",
+  description: "Promotes persistent particle basins into worlds and introduces local competition.",
   colorMode: "energy",
   showProbes: true,
   showBasins: true,
@@ -366,15 +695,19 @@ export const Stage4: StagePreset = {
     closureOperator,
     oscillationOperator,
     basinDetectionOperator,
+    sanctuaryFieldOperator,
+    clusteredSignatureOperator,
     emergentPromotionOperator,
-    competitiveEcosystemOperator
+    competitiveEcosystemOperator,
+    clusterCeilingOperator,
+    distressLifecycleOperator
   ]
 }
 
 export const Stage5: StagePreset = {
   id: "stage-5-selection-pressure",
-  label: "Stage 5 - Selection Pressure",
-  description: "Adds global budget selection on top of local ecosystem dynamics.",
+  label: "Stage 5 - Helios Lattice Pressure",
+  description: "Adds global budget selection, cluster ceilings, and Helios (4x4x4) transition pressure.",
   colorMode: "energy",
   showProbes: true,
   showBasins: true,
@@ -382,10 +715,14 @@ export const Stage5: StagePreset = {
     closureOperator,
     oscillationOperator,
     basinDetectionOperator,
+    sanctuaryFieldOperator,
+    clusteredSignatureOperator,
     emergentPromotionOperator,
     competitiveEcosystemOperator,
     selectionPressureOperator,
-    budgetRegulatorOperator
+    clusterCeilingOperator,
+    budgetRegulatorOperator,
+    distressLifecycleOperator
   ]
 }
 

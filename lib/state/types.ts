@@ -37,6 +37,7 @@ export type SimInvariant = {
   dynamic: boolean
   energy: number
   stability: number
+  distressUntilTick?: number
 }
 
 export type RegistryEntry = {

@@ -83,7 +83,7 @@ export default function HUDMetrics({ metrics }: Props) {
           level={levelForConservedDelta(metrics.conservedDelta)}
         />
         <Item
-          label="Living Invariants"
+          label="Living Worlds"
           value={metrics.livingInvariants}
           level={levelForLivingInvariants(metrics.livingInvariants)}
         />

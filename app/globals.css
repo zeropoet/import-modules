@@ -20,6 +20,25 @@ body {
   height: 100vh;
 }
 
+.center-logo-wrap {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(20vw, 220px);
+  z-index: 9;
+  pointer-events: none;
+  opacity: 0.42;
+  filter: drop-shadow(0 0 14px rgba(239, 68, 68, 0.18));
+}
+
+.center-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: invert(1) contrast(1.08);
+}
+
 .bottom-dock {
   position: fixed;
   left: 12px;

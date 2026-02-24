@@ -1,7 +1,9 @@
 export type SimEventType =
   | "BIRTH"
   | "DEATH"
+  | "DISTRESS"
   | "PROMOTION"
+  | "RECOVERY"
   | "STARVATION"
   | "SUPPRESSED"
   | "MERGE"

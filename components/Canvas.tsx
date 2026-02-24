@@ -65,7 +65,8 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     const trailLayer = document.createElement("canvas")
     const trailContext = trailLayer.getContext("2d")
     const TRAIL_FALLOFF = 0.08
-    const AXIS_WHITE_BLEND = Math.max(0.18, Math.min(0.78, TRAIL_FALLOFF * 20))
+    const AXIS_OPACITY = 0.42
+    const HELIOS_LATTICE_WORLD_CAP = 64
     let width = 1
     let height = 1
     let rafId = 0
@@ -104,8 +105,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         (max, anchor) => Math.max(max, Math.hypot(anchor.position[0], anchor.position[1])),
         0
       )
-      const centerForceRadiusPx = Math.max(24, anchorRadiusWorld / bounds.scale)
-      const centerFillRadiusPx = 40
+      const centerForceRadiusPx = Math.max(12, (anchorRadiusWorld / bounds.scale) * 0.5)
 
       ctx.clearRect(0, 0, width, height)
       const resolution = 4
@@ -145,16 +145,16 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       ctx.beginPath()
       ctx.moveTo(bounds.cx, 0)
       ctx.lineTo(bounds.cx, height)
-      ctx.strokeStyle = "rgba(255, 255, 255, 1)"
+      ctx.strokeStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.stroke()
 
       ctx.beginPath()
       ctx.moveTo(0, bounds.cy)
       ctx.lineTo(width, bounds.cy)
-      ctx.strokeStyle = "rgba(255, 255, 255, 1)"
+      ctx.strokeStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.stroke()
 
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.72 + AXIS_WHITE_BLEND * 0.2})`
+      ctx.fillStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
       ctx.fillText("y", bounds.cx + 6, 14)
       ctx.fillText("x", width - 12, bounds.cy - 6)
@@ -170,21 +170,15 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         0,
         bounds.cx,
         bounds.cy,
-        centerFillRadiusPx
+        centerForceRadiusPx
       )
-      coreGradient.addColorStop(0, `rgba(239, 68, 68, ${0.08 + centerForceNorm * 0.15})`)
-      coreGradient.addColorStop(0.68, `rgba(239, 68, 68, ${0.03 + centerForceNorm * 0.1})`)
-      coreGradient.addColorStop(1, "rgba(239, 68, 68, 0)")
-      ctx.beginPath()
-      ctx.arc(bounds.cx, bounds.cy, centerFillRadiusPx, 0, Math.PI * 2)
-      ctx.fillStyle = coreGradient
-      ctx.fill()
-
+      coreGradient.addColorStop(0, `rgba(255, 255, 255, ${0.22 + centerForceNorm * 0.3})`)
+      coreGradient.addColorStop(0.68, `rgba(255, 255, 255, ${0.12 + centerForceNorm * 0.2})`)
+      coreGradient.addColorStop(1, "rgba(255, 255, 255, 0)")
       ctx.beginPath()
       ctx.arc(bounds.cx, bounds.cy, centerForceRadiusPx, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(239, 68, 68, ${0.24 + centerForceNorm * 0.34})`
-      ctx.lineWidth = 1.2
-      ctx.stroke()
+      ctx.fillStyle = coreGradient
+      ctx.fill()
 
       if (activePreset.showProbes) {
         for (const p of sim.probes) {
@@ -201,10 +195,19 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           if (trailContext) {
             const psx = p.prevX / bounds.scale + bounds.cx
             const psy = p.prevY / bounds.scale + bounds.cy
+            const trailGradient = trailContext.createLinearGradient(psx, psy, sx, sy)
+            trailGradient.addColorStop(
+              0,
+              `hsla(${hue}, 96%, ${Math.max(36, lightness - 10)}%, ${Math.max(0.06, alpha * 0.28)})`
+            )
+            trailGradient.addColorStop(
+              1,
+              `hsla(${hue}, 96%, ${lightness}%, ${Math.max(0.12, Math.min(0.95, alpha))})`
+            )
             trailContext.beginPath()
             trailContext.moveTo(psx, psy)
             trailContext.lineTo(sx, sy)
-            trailContext.strokeStyle = `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.95, alpha))})`
+            trailContext.strokeStyle = trailGradient
             trailContext.lineWidth = 0.5 + speedNorm * 1 + massNorm * 0.8
             trailContext.stroke()
           }
@@ -236,6 +239,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       }
 
       const dynamicInvariants = sim.invariants.filter((inv) => inv.dynamic)
+      const heliosLatticeActive = dynamicInvariants.length >= HELIOS_LATTICE_WORLD_CAP
       const topDynamicIds = new Set(
         [...dynamicInvariants].sort((a, b) => b.energy - a.energy).slice(0, 5).map((inv) => inv.id)
       )
@@ -243,19 +247,22 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy
         const age = sim.globals.tick - (registryById.get(inv.id)?.birthTick ?? sim.globals.tick)
+        const distressRemaining = Math.max(0, (inv.distressUntilTick ?? sim.globals.tick) - sim.globals.tick)
+        const distressed = distressRemaining > 0
         const energyNorm = Math.max(0, Math.min(1, inv.energy / 25))
         const ageNorm = Math.max(0, Math.min(1, age / 250))
         const ageWindow = 110
         const agePhase = (age % ageWindow) / ageWindow
         const ageEpoch = Math.floor(age / ageWindow)
-        const hue = 210 - energyNorm * 165 + ageEpoch * 9 + agePhase * 14
+        const baseHue = 210 - energyNorm * 165 + ageEpoch * 9 + agePhase * 14
+        const hue = distressed ? 18 + Math.sin(sim.globals.time * 8 + age * 0.08) * 10 : baseHue
         const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
         const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
 
         ctx.beginPath()
         ctx.arc(sx, sy, radius + 2, 0, Math.PI * 2)
-        ctx.fillStyle = `hsla(${hue}, 82%, 56%, 0.22)`
+        ctx.fillStyle = distressed ? `hsla(${hue}, 96%, 58%, 0.33)` : `hsla(${hue}, 82%, 56%, 0.22)`
         ctx.fill()
 
         ctx.beginPath()
@@ -266,27 +273,29 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
         ctx.beginPath()
         ctx.arc(sx, sy, Math.max(1.2, radius * 0.35), 0, Math.PI * 2)
-        ctx.fillStyle = `hsla(${hue}, 88%, 64%, 0.8)`
+        ctx.fillStyle = distressed ? `hsla(${hue + 8}, 100%, 66%, 0.92)` : `hsla(${hue}, 88%, 64%, 0.8)`
         ctx.fill()
 
-        if (ageNorm > 0.18) {
+        if (heliosLatticeActive || ageNorm > 0.18) {
           const haloRadius = radius + 3 + ageNorm * 4.2
           const start = agePhase * Math.PI * 2
           const sweep = Math.PI * (0.8 + ageNorm * 0.85)
-          const haloAlpha = 0.16 + ageNorm * 0.28
+          const haloAlpha = heliosLatticeActive ? 0.36 + ageNorm * 0.28 : 0.16 + ageNorm * 0.28
 
-          // Subtle companion ring ties the arc to the invariant shell.
+          // Elder boundary ring; in Helios state this becomes persistent for every world.
           ctx.beginPath()
           ctx.arc(sx, sy, haloRadius, 0, Math.PI * 2)
           ctx.strokeStyle = `hsla(${hue + 10}, 82%, 70%, ${haloAlpha * 0.34})`
-          ctx.lineWidth = 0.6 + ageNorm * 0.7
+          ctx.lineWidth = 0.9 + ageNorm * (heliosLatticeActive ? 1 : 0.7)
           ctx.stroke()
 
-          ctx.beginPath()
-          ctx.arc(sx, sy, haloRadius, start, start + sweep)
-          ctx.strokeStyle = `hsla(${hue + 14}, 86%, 74%, ${haloAlpha})`
-          ctx.lineWidth = 0.9 + ageNorm * 1
-          ctx.stroke()
+          if (!heliosLatticeActive) {
+            ctx.beginPath()
+            ctx.arc(sx, sy, haloRadius, start, start + sweep)
+            ctx.strokeStyle = `hsla(${hue + 14}, 86%, 74%, ${haloAlpha})`
+            ctx.lineWidth = 0.9 + ageNorm * 1
+            ctx.stroke()
+          }
         }
 
         if (ageNorm > 0.58) {
@@ -303,7 +312,8 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         if (topDynamicIds.has(inv.id)) {
           ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
           ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
-          ctx.fillText(`${inv.id} a${age} e${inv.energy.toFixed(1)}`, sx + radius + 4, sy - radius - 4)
+          const distressLabel = distressed ? ` d${distressRemaining}` : ""
+          ctx.fillText(`${inv.id} a${age} e${inv.energy.toFixed(1)}${distressLabel}`, sx + radius + 4, sy - radius - 4)
         }
       }
 

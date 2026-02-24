@@ -16,7 +16,7 @@ export default function HUDSchema() {
           <p>
             <strong>Age</strong>
             <br />
-            Older invariants breathe, gain thicker rings, and develop arc halos
+            Older worlds breathe, gain thicker rings, and develop arc halos
           </p>
         </div>
         <div className="schema-item">
@@ -32,7 +32,7 @@ export default function HUDSchema() {
           <p>
             <strong>Type</strong>
             <br />
-            Squares are fixed constitutional anchors (baseline `B`, `Ci`; extended set optional); circles are dynamic invariants
+            Squares are fixed constitutional anchors (`B`, `Ci`); circles are dynamic worlds
           </p>
         </div>
         <div className="schema-item">
@@ -49,9 +49,9 @@ export default function HUDSchema() {
             <span className="schema-probe-head" />
           </span>
           <p>
-            <strong>Probe Motion</strong>
+            <strong>Particle Motion</strong>
             <br />
-            White stroke paths persist for the session; probe heads show speed and age (larger + fainter)
+            Motion-gradient trails persist for the session; particle heads show speed and age (larger + fainter)
           </p>
         </div>
         <div className="schema-item">
@@ -62,7 +62,7 @@ export default function HUDSchema() {
           <p>
             <strong>Elder Orbit</strong>
             <br />
-            A small orbiting dot appears on elder invariants to mark advanced age
+            A small orbiting dot appears on elder worlds to mark advanced age
           </p>
         </div>
         <div className="schema-item">
