@@ -27,9 +27,9 @@ export function getConfiguredAnchors(): AnchorSpec[] {
     anchor("Ci-y", [0, 0.5]),
     ...(USE_R90_ANCHORS
       ? [
-          anchor("B-r90", [-diagonal, -diagonal]),
-          anchor("Ci-r90", [diagonal, -diagonal]),
-          anchor("B-y-r90", [diagonal, diagonal]),
+          anchor("B-B-y", [-diagonal, -diagonal]),
+          anchor("B-y-r90", [diagonal, -diagonal]),
+          anchor("Ci-r90", [diagonal, diagonal]),
           anchor("Ci-y-r90", [-diagonal, diagonal])
         ]
       : [])

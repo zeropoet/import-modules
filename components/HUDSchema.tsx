@@ -32,7 +32,8 @@ export default function HUDSchema() {
           <p>
             <strong>Type</strong>
             <br />
-            Squares are fixed constitutional anchors (`B`, `Ci`); circles are dynamic worlds
+            Squares are fixed constitutional anchors (`B`, `Ci`, `B-y`, `Ci-y`, `B-B-y`, `B-y-r90`, `Ci-r90`, `Ci-y-r90`);
+            circles are dynamic worlds
           </p>
         </div>
         <div className="schema-item">
