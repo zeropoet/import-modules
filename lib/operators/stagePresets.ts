@@ -38,16 +38,16 @@ const ANCHOR_EXCLUSION_PROBE_FORCE = 0.008
 const ANCHOR_EXCLUSION_WORLD_FORCE = 0.022
 const HELIOS_GEL_NEIGHBOR_RADIUS = 0.22
 const HELIOS_GEL_REST_DISTANCE = 0.11
-const HELIOS_GEL_RECOMBINE_GAIN = 0
-const HELIOS_GEL_SNAP_GAIN = 0
-const HELIOS_GEL_VISCOSITY = 0
-const HELIOS_GEL_SURFACE_TENSION = 0.008
+const HELIOS_GEL_RECOMBINE_GAIN = 0.006
+const HELIOS_GEL_SNAP_GAIN = 0.003
+const HELIOS_GEL_VISCOSITY = 0.01
+const HELIOS_GEL_SURFACE_TENSION = 0.0012
 const HELIOS_GEL_MAX_STEP = 0.035
 const HELIOS_GEL_RESIST_RADIUS = 0.095
 const HELIOS_GEL_RESIST_GAIN = 0.03
 const HELIOS_POSTCAP_SPRING_DAMP = 0.22
 const HELIOS_SINGULARITY_TARGET_RADIUS = 0.075
-const HELIOS_CENTROID_DRIFT_GAIN = 0.014
+const HELIOS_CENTROID_DRIFT_GAIN = 0
 const WORLD_MASS_MIN = 0.75
 const WORLD_MASS_MAX = 1.7
 const WORLD_INITIAL_SPEED_MIN = 0.003
@@ -57,9 +57,16 @@ const WORLD_MUTUAL_GRAVITY_GAIN = 0
 const WORLD_REPEL_RADIUS = 0.16
 const WORLD_REPEL_GAIN = 0.011
 const WORLD_COLLISION_FRICTION = 0.14
+const WORLD_SNAP_LOCK_RADIUS = 0.07
+const WORLD_SNAP_LOCK_REST_DISTANCE = 0.068
+const WORLD_SNAP_LOCK_GAIN = 0.02
+const WORLD_SNAP_LOCK_DAMP = 0.2
+const WORLD_SNAP_LOCK_TICKS = 8
+const WORLD_SEPARATION_IMPULSE = 0.03
+const WORLD_SEPARATION_SWERVE = 0.01
 const WORLD_DRAG = 0.988
 const WORLD_MIN_SPEED = 0.008
-const WORLD_MIN_SPEED_KICK = 0.006
+const WORLD_MIN_SPEED_KICK = 0.001
 const WORLD_SPEED_CAP = 0.075
 const ORIGIN_CLUSTER_TETHER_GAIN = 0.032
 const ORIGIN_CLUSTER_TETHER_DAMP = 0.14
@@ -71,6 +78,11 @@ const PARTICLE_COLLAPSE_PULL_GAIN = 0.036
 const PARTICLE_COLLAPSE_SPIRAL_GAIN = 0.012
 const PARTICLE_COLLAPSE_DAMPING = 0.9
 const PARTICLE_COLLAPSE_CORE_RADIUS = 0.06
+const worldPairLocks = new Map<string, number>()
+
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`
+}
 
 function seededUnit(seed: number, salt: number): number {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
@@ -284,6 +296,7 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
 
   const dtNorm = dt * 60
   const accel = new Map<string, Vec2>()
+  const tick = state.globals.tick
   for (const world of worlds) accel.set(world.id, [0, 0])
 
   for (const world of worlds) {
@@ -312,6 +325,9 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       const dist = Math.hypot(dx, dy) || 1
       const ux = dx / dist
       const uy = dy / dist
+      const rvx = b.vx - a.vx
+      const rvy = b.vy - a.vy
+      const relVelAlong = rvx * ux + rvy * uy
       if (WORLD_MUTUAL_GRAVITY_GAIN > 0) {
         const gravForce =
           (WORLD_MUTUAL_GRAVITY_GAIN * Math.max(0.2, a.mass) * Math.max(0.2, b.mass)) /
@@ -320,6 +336,40 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
         aa[1] += (uy * gravForce) / Math.max(0.2, a.mass)
         ab[0] -= (ux * gravForce) / Math.max(0.2, b.mass)
         ab[1] -= (uy * gravForce) / Math.max(0.2, b.mass)
+      }
+
+      const lockId = pairKey(a.id, b.id)
+      const lockUntilTick = worldPairLocks.get(lockId)
+      const isLocked = lockUntilTick !== undefined && tick <= lockUntilTick
+      if (dist < WORLD_SNAP_LOCK_RADIUS && relVelAlong < 0 && !isLocked) {
+        worldPairLocks.set(lockId, tick + WORLD_SNAP_LOCK_TICKS)
+      }
+      if (isLocked) {
+        // Snap to a short shared orbit distance and damp relative slip so pair briefly "locks."
+        const snapError = dist - WORLD_SNAP_LOCK_REST_DISTANCE
+        const snapForce = snapError * WORLD_SNAP_LOCK_GAIN
+        aa[0] += (ux * snapForce) / Math.max(0.2, a.mass)
+        aa[1] += (uy * snapForce) / Math.max(0.2, a.mass)
+        ab[0] -= (ux * snapForce) / Math.max(0.2, b.mass)
+        ab[1] -= (uy * snapForce) / Math.max(0.2, b.mass)
+
+        const lockDamp = relVelAlong * WORLD_SNAP_LOCK_DAMP
+        aa[0] += (ux * lockDamp) / Math.max(0.2, a.mass)
+        aa[1] += (uy * lockDamp) / Math.max(0.2, a.mass)
+        ab[0] -= (ux * lockDamp) / Math.max(0.2, b.mass)
+        ab[1] -= (uy * lockDamp) / Math.max(0.2, b.mass)
+      } else if (lockUntilTick !== undefined && tick > lockUntilTick) {
+        // Release with outward push and tangential swerve to change trajectories.
+        const spinSign = seededUnit(state.globals.seed, idSalt(a.id) * 53 + idSalt(b.id) * 97) > 0.5 ? 1 : -1
+        const swerveX = -uy * spinSign
+        const swerveY = ux * spinSign
+        const impulseX = ux * WORLD_SEPARATION_IMPULSE + swerveX * WORLD_SEPARATION_SWERVE
+        const impulseY = uy * WORLD_SEPARATION_IMPULSE + swerveY * WORLD_SEPARATION_SWERVE
+        aa[0] -= impulseX / Math.max(0.2, a.mass)
+        aa[1] -= impulseY / Math.max(0.2, a.mass)
+        ab[0] += impulseX / Math.max(0.2, b.mass)
+        ab[1] += impulseY / Math.max(0.2, b.mass)
+        worldPairLocks.delete(lockId)
       }
 
       if (dist >= WORLD_REPEL_RADIUS) continue
@@ -331,8 +381,6 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       ab[1] += (uy * force) / Math.max(0.2, b.mass)
 
       // Tangential contact friction: reduce glide speed only while in collision radius.
-      const rvx = b.vx - a.vx
-      const rvy = b.vy - a.vy
       const tangentX = -uy
       const tangentY = ux
       const tangentialSpeed = rvx * tangentX + rvy * tangentY
