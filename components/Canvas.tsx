@@ -18,6 +18,7 @@ type Telemetry = {
 type Props = {
   preset: StagePreset
   seed: number
+  showOriginConnections?: boolean
   onTelemetry?: (telemetry: Telemetry) => void
 }
 
@@ -40,7 +41,7 @@ function getWorldBounds(width: number, height: number): WorldBounds {
   }
 }
 
-export default function Canvas({ preset, seed, onTelemetry }: Props) {
+export default function Canvas({ preset, seed, showOriginConnections = false, onTelemetry }: Props) {
   const ref = useRef<HTMLCanvasElement>(null)
   const presetRef = useRef<StagePreset>(preset)
   const simRef = useRef<SimState>(createSimulationState(seed))
@@ -64,11 +65,11 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     const ctx = context
     const trailLayer = document.createElement("canvas")
     const trailContext = trailLayer.getContext("2d")
-    const TRAIL_FALLOFF = 0.08
-    const AXIS_OPACITY = 0.42
-    const CENTER_FORCE_OPACITY = 0.42
+    const TRAIL_FALLOFF = 0.12
+    const AXIS_OPACITY = 0.52
+    const CENTER_FORCE_OPACITY = 0.36
     const HELIOS_LATTICE_WORLD_CAP = 64
-    const PETAL_CAPTURE_ENABLED = true
+    const PETAL_CAPTURE_ENABLED = false
     const PETAL_WORLD_CAP = 64
     const PETAL_CLUSTER_SWAY_GAIN = 0.22
     const SIM_STEP = 0.008
@@ -81,7 +82,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     let telemetryCounter = 0
     let lastFrameTime = 0
     let simAccumulator = 0
-    let fieldResolution = 4
+    let fieldResolution = 3
     const WORLD_PICK_RADIUS_PX = 30
     let dragState: {
       pointerId: number
@@ -99,11 +100,15 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       el.width = Math.floor(width * dpr)
       el.height = Math.floor(height * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.imageSmoothingEnabled = true
+      ctx.lineJoin = "round"
+      ctx.lineCap = "round"
 
       if (trailContext) {
         trailLayer.width = el.width
         trailLayer.height = el.height
         trailContext.setTransform(dpr, 0, 0, dpr, 0, 0)
+        trailContext.imageSmoothingEnabled = true
         trailContext.lineCap = "round"
       }
     }
@@ -203,9 +208,9 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         simSteps += 1
       }
       if (frameMs > 20) {
-        fieldResolution = Math.min(8, fieldResolution + 1)
+        fieldResolution = Math.min(6, fieldResolution + 1)
       } else if (frameMs < 15) {
-        fieldResolution = Math.max(4, fieldResolution - 1)
+        fieldResolution = Math.max(3, fieldResolution - 1)
       }
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
@@ -240,11 +245,12 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           const energy = sampleEnergyAtTime([nx, ny], sim.globals.time)
 
           if (activePreset.colorMode === "energy") {
-            const brightness = Math.max(24, Math.min(82, density * 120))
+            const brightness = Math.max(20, Math.min(80, density * 110))
             const hue = ((200 + energy * 120) % 360 + 360) % 360
-            ctx.fillStyle = `hsl(${hue}, 80%, ${brightness}%)`
+            ctx.fillStyle = `hsl(${hue}, 88%, ${brightness}%)`
           } else {
-            const value = Math.max(42, Math.min(255, Math.floor(density * 255)))
+            const densityNorm = Math.max(0, Math.min(1, density))
+            const value = Math.max(34, Math.min(250, Math.floor(Math.pow(densityNorm, 0.82) * 255)))
             ctx.fillStyle = `rgb(${value}, ${value}, ${value})`
           }
 
@@ -262,31 +268,32 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         }
       }
 
+      const axisX = Math.round(bounds.cx) + 0.5
+      const axisY = Math.round(bounds.cy) + 0.5
       ctx.save()
       ctx.lineWidth = 1
 
       ctx.beginPath()
-      ctx.moveTo(bounds.cx, 0)
-      ctx.lineTo(bounds.cx, height)
+      ctx.moveTo(axisX, 0)
+      ctx.lineTo(axisX, height)
       ctx.strokeStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.stroke()
 
       ctx.beginPath()
-      ctx.moveTo(0, bounds.cy)
-      ctx.lineTo(width, bounds.cy)
+      ctx.moveTo(0, axisY)
+      ctx.lineTo(width, axisY)
       ctx.strokeStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.stroke()
 
       ctx.fillStyle = `rgba(255, 255, 255, ${AXIS_OPACITY})`
       ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
-      ctx.fillText("y", bounds.cx + 6, 14)
-      ctx.fillText("x", width - 12, bounds.cy - 6)
+      ctx.fillText("y", axisX + 6, 14)
+      ctx.fillText("x", width - 12, axisY - 6)
       ctx.restore()
 
       const centerGradE = computeEnergyGradient(sim, [0, 0])
       const centerGradD = computeDensityGradient(sim, [0, 0])
       const centerForce = Math.hypot(centerGradE[0] + 0.3 * centerGradD[0], centerGradE[1] + 0.3 * centerGradD[1])
-      const centerForceNorm = Math.max(0, Math.min(1, centerForce / 2.2))
       const coreGradient = ctx.createRadialGradient(
         bounds.cx,
         bounds.cy,
@@ -347,7 +354,6 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         ctx.drawImage(trailLayer, 0, 0, width, height)
       }
 
-      const flameLinkedWorldIds = new Set<string>()
       if (PETAL_CAPTURE_ENABLED) {
         const tau = Math.PI * 2
         const worlds = sim.invariants.filter((inv) => inv.dynamic)
@@ -373,7 +379,6 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
         for (let i = 0; i < petalWorlds.length; i += 1) {
           const world = petalWorlds[i]
-          flameLinkedWorldIds.add(world.id)
           const worldRadius = Math.hypot(world.position[0], world.position[1])
           const density = Math.max(0, Math.min(1, world.mass / 1.8))
           const unfurl = Math.max(0, Math.min(1, (sim.globals.tick - 80) / 420))
@@ -434,6 +439,24 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       const dynamicInvariants = sim.invariants.filter((inv) => inv.dynamic)
       const basinById = new Map(sim.basins.map((basin) => [basin.id, basin]))
       const heliosLatticeActive = dynamicInvariants.length >= HELIOS_LATTICE_WORLD_CAP
+      if (showOriginConnections && dynamicInvariants.length > 0) {
+        const linkedWorlds = [...dynamicInvariants]
+          .sort((a, b) => Math.hypot(a.position[0], a.position[1]) - Math.hypot(b.position[0], b.position[1]))
+          .slice(0, HELIOS_LATTICE_WORLD_CAP)
+
+        for (const world of linkedWorlds) {
+          const sx = world.position[0] / bounds.scale + bounds.cx
+          const sy = world.position[1] / bounds.scale + bounds.cy
+          const alpha = 0.18 + Math.min(0.26, world.stability * 0.2)
+
+          ctx.beginPath()
+          ctx.moveTo(bounds.cx, bounds.cy)
+          ctx.lineTo(sx, sy)
+          ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`
+          ctx.lineWidth = 0.54
+          ctx.stroke()
+        }
+      }
       if (heliosLatticeActive && dynamicInvariants.length > 0) {
         const centroidXWorld = dynamicInvariants.reduce((sum, inv) => sum + inv.position[0], 0) / dynamicInvariants.length
         const centroidYWorld = dynamicInvariants.reduce((sum, inv) => sum + inv.position[1], 0) / dynamicInvariants.length
@@ -591,7 +614,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       window.removeEventListener("resize", resizeCanvas)
       window.visualViewport?.removeEventListener("resize", resizeCanvas)
     }
-  }, [onTelemetry])
+  }, [onTelemetry, showOriginConnections])
 
   return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100vw", height: "100dvh", display: "block" }} />
 }

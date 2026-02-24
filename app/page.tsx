@@ -143,7 +143,7 @@ export default function Home() {
           </div>
         </details>
       </aside>
-      <Canvas preset={selectedPreset} seed={activeSeed} onTelemetry={setTelemetry} />
+      <Canvas preset={selectedPreset} seed={activeSeed} showOriginConnections onTelemetry={setTelemetry} />
     </main>
   )
 }
