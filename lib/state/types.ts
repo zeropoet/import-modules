@@ -33,6 +33,9 @@ export type Basin = {
 export type SimInvariant = {
   id: string
   position: Vec2
+  vx: number
+  vy: number
+  mass: number
   strength: number
   dynamic: boolean
   energy: number

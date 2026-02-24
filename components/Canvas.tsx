@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react"
 import { getRegistryEntries } from "@/lib/invariants/registry"
 import type { StagePreset } from "@/lib/operators/types"
 import { createSimulationState, stepSimulation } from "@/lib/sim/engine"
-import { computeDensity, computeDensityGradient, computeEnergy, computeEnergyGradient } from "@/lib/sim/math"
+import { computeDensityGradient, computeEnergyGradient } from "@/lib/sim/math"
 import type { RegistryEntry, SimMetrics, SimState } from "@/lib/state/types"
 
 type Telemetry = {
@@ -68,6 +68,9 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     const AXIS_OPACITY = 0.42
     const CENTER_FORCE_OPACITY = 0.42
     const HELIOS_LATTICE_WORLD_CAP = 64
+    const PETAL_CAPTURE_ENABLED = true
+    const PETAL_WORLD_CAP = 64
+    const PETAL_CLUSTER_SWAY_GAIN = 0.22
     let width = 1
     let height = 1
     let rafId = 0
@@ -109,13 +112,28 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       const centerForceRadiusPx = Math.max(8, (anchorRadiusWorld / bounds.scale) * 0.3)
 
       ctx.clearRect(0, 0, width, height)
+      const sampleDensityAtTime = (coords: [number, number], t: number): number => {
+        let base = sim.fields.density(coords, t)
+        for (const inv of sim.invariants) {
+          const dx = inv.position[0] - coords[0]
+          const dy = inv.position[1] - coords[1]
+          const dist = Math.hypot(dx, dy)
+          const influence = inv.dynamic ? inv.strength : inv.strength * 1.5
+          base += influence * Math.exp(-dist * 4)
+        }
+        return base
+      }
+      const sampleEnergyAtTime = (coords: [number, number], t: number): number => {
+        if (!sim.globals.energyEnabled) return 0
+        return sim.fields.energy(coords, t)
+      }
       const resolution = 4
       for (let x = 0; x < width; x += resolution) {
         for (let y = 0; y < height; y += resolution) {
           const nx = (x - bounds.cx) * bounds.scale
           const ny = (y - bounds.cy) * bounds.scale
-          const density = computeDensity(sim, [nx, ny])
-          const energy = computeEnergy(sim, [nx, ny])
+          const density = sampleDensityAtTime([nx, ny], sim.globals.time)
+          const energy = sampleEnergyAtTime([nx, ny], sim.globals.time)
 
           if (activePreset.colorMode === "energy") {
             const brightness = Math.max(24, Math.min(82, density * 120))
@@ -188,8 +206,9 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           const speedNorm = Math.max(0, Math.min(1, p.speed / 0.018))
           const ageNorm = Math.max(0, Math.min(1, p.age / 450))
           const massNorm = Math.max(0, Math.min(1, (p.mass - 0.6) / 1.6))
-          const hue = 210 - speedNorm * 165
-          const lightness = 48 + speedNorm * 26
+          const flameHeat = Math.max(0, Math.min(1, speedNorm * 0.78 + massNorm * 0.22))
+          const hue = 8 + flameHeat * 46
+          const lightness = 34 + flameHeat * 40
           const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
           const size = 1 + speedNorm * 1.6 + ageNorm * 2.2 + massNorm * 3.2
 
@@ -199,11 +218,11 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
             const trailGradient = trailContext.createLinearGradient(psx, psy, sx, sy)
             trailGradient.addColorStop(
               0,
-              `hsla(${hue}, 96%, ${Math.max(36, lightness - 10)}%, ${Math.max(0.06, alpha * 0.28)})`
+              `hsla(${Math.max(4, hue - 10)}, 96%, ${Math.max(18, lightness - 16)}%, ${Math.max(0.05, alpha * 0.22)})`
             )
             trailGradient.addColorStop(
               1,
-              `hsla(${hue}, 96%, ${lightness}%, ${Math.max(0.12, Math.min(0.95, alpha))})`
+              `hsla(${hue}, 100%, ${Math.min(84, lightness + 6)}%, ${Math.max(0.14, Math.min(0.95, alpha))})`
             )
             trailContext.beginPath()
             trailContext.moveTo(psx, psy)
@@ -214,7 +233,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           }
 
           const headAlpha = Math.max(0.1, alpha * (0.95 - ageNorm * 0.55))
-          ctx.fillStyle = `hsla(${hue}, 96%, ${lightness + 4}%, ${headAlpha})`
+          ctx.fillStyle = `hsla(${hue}, 100%, ${Math.min(90, lightness + 10)}%, ${headAlpha})`
           ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
 
         }
@@ -222,6 +241,75 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
       if (trailContext) {
         ctx.drawImage(trailLayer, 0, 0, width, height)
+      }
+
+      const flameLinkedWorldIds = new Set<string>()
+      if (PETAL_CAPTURE_ENABLED) {
+        const tau = Math.PI * 2
+        const worlds = sim.invariants.filter((inv) => inv.dynamic)
+        const petalWorlds = [...worlds].slice(0, PETAL_WORLD_CAP)
+        if (petalWorlds.length === 0) {
+          // no-op
+        } else {
+          const meanWorldRadius =
+            petalWorlds.reduce((sum, world) => sum + Math.hypot(world.position[0], world.position[1]), 0) /
+            petalWorlds.length
+        let worldClusterX = 0
+        let worldClusterY = 0
+        for (const world of petalWorlds) {
+          const vMag = Math.hypot(world.vx, world.vy)
+          const posTheta = Math.atan2(world.position[1], world.position[0])
+          const velTheta = Math.atan2(world.vy, world.vx || 1e-6)
+          const blendTheta = posTheta * 0.4 + velTheta * 0.6
+          const weight = Math.max(0.2, vMag * 40 + world.energy * 0.05 + world.stability * 0.35)
+          worldClusterX += Math.cos(blendTheta) * weight
+          worldClusterY += Math.sin(blendTheta) * weight
+        }
+          const clusterTheta = Math.atan2(worldClusterY, worldClusterX)
+
+        for (let i = 0; i < petalWorlds.length; i += 1) {
+          const world = petalWorlds[i]
+          flameLinkedWorldIds.add(world.id)
+          const worldRadius = Math.hypot(world.position[0], world.position[1])
+          const density = Math.max(0, Math.min(1, world.mass / 1.8))
+          const unfurl = Math.max(0, Math.min(1, (sim.globals.tick - 80) / 420))
+          const maxRadiusPx = (worldRadius / bounds.scale) * (0.42 + unfurl * 0.85)
+          const worldTheta = Math.atan2(world.position[1], world.position[0])
+          const vMag = Math.hypot(world.vx, world.vy)
+          const velTheta = Math.atan2(world.vy, world.vx || 1e-6)
+          const flowTheta = worldTheta * 0.5 + velTheta * 0.5
+          const baseThetaRaw = flowTheta + sim.globals.time * (0.04 + vMag * 1.8)
+          const deltaToCluster = Math.atan2(Math.sin(clusterTheta - baseThetaRaw), Math.cos(clusterTheta - baseThetaRaw))
+          const sway = Math.sin(sim.globals.time * 1.6 + i * 0.45 + deltaToCluster * 2.4) * PETAL_CLUSTER_SWAY_GAIN
+          const baseTheta = baseThetaRaw + deltaToCluster * PETAL_CLUSTER_SWAY_GAIN * 0.35 + sway * (0.25 + density * 0.35)
+          const petalSpan = (tau / Math.max(10, petalWorlds.length)) * (0.65 + density * 0.4)
+          const p0 = baseTheta - petalSpan
+          const p1 = baseTheta + petalSpan
+          const tip = maxRadiusPx + density * 36 + (vMag / Math.max(0.0001, meanWorldRadius)) * 10
+          const growthNorm = Math.max(0, Math.min(1, tip / Math.max(1, Math.min(width, height) * 0.42)))
+          const gravityDrop = tip * growthNorm * (0.08 + unfurl * 0.18)
+          const curl = growthNorm * (0.1 + density * 0.16)
+          const tipTheta = baseTheta + Math.sin(sim.globals.time * 1.2 + i * 0.4) * 0.05 * growthNorm
+          const cp = tip * (0.48 + density * 0.22)
+          const c0x = bounds.cx + Math.cos(p0) * cp - Math.sin(p0) * tip * curl * 0.24
+          const c0y = bounds.cy + Math.sin(p0) * cp + Math.cos(p0) * tip * curl * 0.14 + gravityDrop * 0.42
+          const c1x = bounds.cx + Math.cos(p1) * cp + Math.sin(p1) * tip * curl * 0.24
+          const c1y = bounds.cy + Math.sin(p1) * cp - Math.cos(p1) * tip * curl * 0.14 + gravityDrop * 0.42
+          const worldTipX = world.position[0] / bounds.scale + bounds.cx
+          const worldTipY = world.position[1] / bounds.scale + bounds.cy
+          const tipX = worldTipX + Math.cos(tipTheta) * tip * 0.18 - Math.sin(baseTheta) * tip * curl * 0.1
+          const tipY = worldTipY + Math.sin(tipTheta) * tip * 0.18 + gravityDrop
+          const hue = 12 + density * 36 + i * 0.9
+          const alpha = 0.04 + density * 0.13
+
+          ctx.beginPath()
+          ctx.moveTo(bounds.cx, bounds.cy)
+          ctx.quadraticCurveTo(c0x, c0y, tipX, tipY)
+          ctx.quadraticCurveTo(c1x, c1y, bounds.cx, bounds.cy)
+          ctx.fillStyle = `hsla(${hue}, 92%, ${46 + density * 24}%, ${alpha})`
+          ctx.fill()
+        }
+        }
       }
 
       if (activePreset.showBasins) {
@@ -241,12 +329,36 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
       const dynamicInvariants = sim.invariants.filter((inv) => inv.dynamic)
       const heliosLatticeActive = dynamicInvariants.length >= HELIOS_LATTICE_WORLD_CAP
+      if (heliosLatticeActive && dynamicInvariants.length > 0) {
+        const centroidXWorld = dynamicInvariants.reduce((sum, inv) => sum + inv.position[0], 0) / dynamicInvariants.length
+        const centroidYWorld = dynamicInvariants.reduce((sum, inv) => sum + inv.position[1], 0) / dynamicInvariants.length
+        const meanRadiusWorld =
+          dynamicInvariants.reduce(
+            (sum, inv) => sum + Math.hypot(inv.position[0] - centroidXWorld, inv.position[1] - centroidYWorld),
+            0
+          ) / dynamicInvariants.length
+        const singularityIntensity = Math.max(0, Math.min(1, 1 - meanRadiusWorld / 0.26))
+        const sx = centroidXWorld / bounds.scale + bounds.cx
+        const sy = centroidYWorld / bounds.scale + bounds.cy
+        const glowRadius = 26 + singularityIntensity * 90
+
+        const singularityGlow = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowRadius)
+        singularityGlow.addColorStop(0, `rgba(255, 255, 255, ${0.2 + singularityIntensity * 0.62})`)
+        singularityGlow.addColorStop(0.35, `rgba(255, 242, 204, ${0.1 + singularityIntensity * 0.46})`)
+        singularityGlow.addColorStop(0.72, `rgba(255, 214, 153, ${0.04 + singularityIntensity * 0.28})`)
+        singularityGlow.addColorStop(1, "rgba(255, 255, 255, 0)")
+        ctx.beginPath()
+        ctx.arc(sx, sy, glowRadius, 0, Math.PI * 2)
+        ctx.fillStyle = singularityGlow
+        ctx.fill()
+      }
       const topDynamicIds = new Set(
         [...dynamicInvariants].sort((a, b) => b.energy - a.energy).slice(0, 5).map((inv) => inv.id)
       )
       for (const inv of dynamicInvariants) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy
+        const flameLinked = flameLinkedWorldIds.has(inv.id)
         const age = sim.globals.tick - (registryById.get(inv.id)?.birthTick ?? sim.globals.tick)
         const distressRemaining = Math.max(0, (inv.distressUntilTick ?? sim.globals.tick) - sim.globals.tick)
         const distressed = distressRemaining > 0
@@ -256,14 +368,19 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         const agePhase = (age % ageWindow) / ageWindow
         const ageEpoch = Math.floor(age / ageWindow)
         const baseHue = 210 - energyNorm * 165 + ageEpoch * 9 + agePhase * 14
-        const hue = distressed ? 18 + Math.sin(sim.globals.time * 8 + age * 0.08) * 10 : baseHue
+        const flameHue = 14 + energyNorm * 42
+        const hue = distressed ? 18 + Math.sin(sim.globals.time * 8 + age * 0.08) * 10 : flameLinked ? flameHue : baseHue
         const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
         const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
 
         ctx.beginPath()
         ctx.arc(sx, sy, radius + 2, 0, Math.PI * 2)
-        ctx.fillStyle = distressed ? `hsla(${hue}, 96%, 58%, 0.33)` : `hsla(${hue}, 82%, 56%, 0.22)`
+        ctx.fillStyle = distressed
+          ? `hsla(${hue}, 96%, 58%, 0.33)`
+          : flameLinked
+            ? `hsla(${hue}, 96%, 50%, 0.28)`
+            : `hsla(${hue}, 82%, 56%, 0.22)`
         ctx.fill()
 
         ctx.beginPath()
@@ -274,7 +391,11 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
 
         ctx.beginPath()
         ctx.arc(sx, sy, Math.max(1.2, radius * 0.35), 0, Math.PI * 2)
-        ctx.fillStyle = distressed ? `hsla(${hue + 8}, 100%, 66%, 0.92)` : `hsla(${hue}, 88%, 64%, 0.8)`
+        ctx.fillStyle = distressed
+          ? `hsla(${hue + 8}, 100%, 66%, 0.92)`
+          : flameLinked
+            ? `hsla(${hue + 10}, 100%, 72%, 0.94)`
+            : `hsla(${hue}, 88%, 64%, 0.8)`
         ctx.fill()
 
         if (heliosLatticeActive || ageNorm > 0.18) {

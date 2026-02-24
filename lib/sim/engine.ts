@@ -29,6 +29,9 @@ function createAnchor(id: string, position: [number, number]): SimInvariant {
   return {
     id,
     position,
+    vx: 0,
+    vy: 0,
+    mass: 1,
     strength: 1,
     dynamic: false,
     energy: 0,

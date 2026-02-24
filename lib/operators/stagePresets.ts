@@ -36,10 +36,43 @@ const TARGET_PARTICLES = 324
 const ANCHOR_EXCLUSION_RADIUS = 0.13
 const ANCHOR_EXCLUSION_PROBE_FORCE = 0.008
 const ANCHOR_EXCLUSION_WORLD_FORCE = 0.022
+const HELIOS_GEL_NEIGHBOR_RADIUS = 0.22
+const HELIOS_GEL_REST_DISTANCE = 0.11
+const HELIOS_GEL_RECOMBINE_GAIN = 0
+const HELIOS_GEL_SNAP_GAIN = 0
+const HELIOS_GEL_VISCOSITY = 0
+const HELIOS_GEL_SURFACE_TENSION = 0.008
+const HELIOS_GEL_MAX_STEP = 0.035
+const HELIOS_GEL_RESIST_RADIUS = 0.095
+const HELIOS_GEL_RESIST_GAIN = 0.03
+const HELIOS_POSTCAP_SPRING_DAMP = 0.22
+const HELIOS_SINGULARITY_TARGET_RADIUS = 0.075
+const HELIOS_CENTROID_DRIFT_GAIN = 0.014
+const WORLD_MASS_MIN = 0.75
+const WORLD_MASS_MAX = 1.7
+const WORLD_INITIAL_SPEED_MIN = 0.003
+const WORLD_INITIAL_SPEED_MAX = 0.012
+const WORLD_GRAVITY_GAIN = 0.0075
+const WORLD_MUTUAL_GRAVITY_GAIN = 0
+const WORLD_REPEL_RADIUS = 0.16
+const WORLD_REPEL_GAIN = 0.011
+const WORLD_COLLISION_FRICTION = 0.14
+const WORLD_DRAG = 0.993
+const WORLD_MIN_SPEED = 0.008
+const WORLD_MIN_SPEED_KICK = 0.006
+const WORLD_SPEED_CAP = 0.075
 
 function seededUnit(seed: number, salt: number): number {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
   return x - Math.floor(x)
+}
+
+function idSalt(id: string): number {
+  let hash = 0
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) % 1000003
+  }
+  return hash
 }
 
 function randomProbe(state: SimState, salt: number): ProbeParticle {
@@ -235,6 +268,102 @@ const distressLifecycleOperator: Operator = (state, _params, _dt, context) => {
   }
 }
 
+const worldPhysicsOperator: Operator = (state, _params, dt) => {
+  const worlds = dynamicInvariants(state)
+  if (worlds.length === 0) return
+
+  const dtNorm = dt * 60
+  const accel = new Map<string, Vec2>()
+  for (const world of worlds) accel.set(world.id, [0, 0])
+
+  for (const world of worlds) {
+    const mass = Math.max(0.2, world.mass)
+    const gx = -world.position[0]
+    const gy = -world.position[1]
+    const gDist = Math.hypot(gx, gy) || 1
+    const gravity = WORLD_GRAVITY_GAIN * (0.55 + Math.min(1.35, gDist))
+    const a = accel.get(world.id)
+    if (!a) continue
+    a[0] += (gx / gDist) * gravity / mass
+    a[1] += (gy / gDist) * gravity / mass
+  }
+
+  for (let i = 0; i < worlds.length; i += 1) {
+    const a = worlds[i]
+    const aa = accel.get(a.id)
+    if (!aa) continue
+
+    for (let j = i + 1; j < worlds.length; j += 1) {
+      const b = worlds[j]
+      const ab = accel.get(b.id)
+      if (!ab) continue
+      const dx = b.position[0] - a.position[0]
+      const dy = b.position[1] - a.position[1]
+      const dist = Math.hypot(dx, dy) || 1
+      const ux = dx / dist
+      const uy = dy / dist
+      if (WORLD_MUTUAL_GRAVITY_GAIN > 0) {
+        const gravForce =
+          (WORLD_MUTUAL_GRAVITY_GAIN * Math.max(0.2, a.mass) * Math.max(0.2, b.mass)) /
+          (dist * dist + 0.02)
+        aa[0] += (ux * gravForce) / Math.max(0.2, a.mass)
+        aa[1] += (uy * gravForce) / Math.max(0.2, a.mass)
+        ab[0] -= (ux * gravForce) / Math.max(0.2, b.mass)
+        ab[1] -= (uy * gravForce) / Math.max(0.2, b.mass)
+      }
+
+      if (dist >= WORLD_REPEL_RADIUS) continue
+      const repelNorm = (WORLD_REPEL_RADIUS - dist) / WORLD_REPEL_RADIUS
+      const force = repelNorm * repelNorm * WORLD_REPEL_GAIN
+      aa[0] -= (ux * force) / Math.max(0.2, a.mass)
+      aa[1] -= (uy * force) / Math.max(0.2, a.mass)
+      ab[0] += (ux * force) / Math.max(0.2, b.mass)
+      ab[1] += (uy * force) / Math.max(0.2, b.mass)
+
+      // Tangential contact friction: reduce glide speed only while in collision radius.
+      const rvx = b.vx - a.vx
+      const rvy = b.vy - a.vy
+      const tangentX = -uy
+      const tangentY = ux
+      const tangentialSpeed = rvx * tangentX + rvy * tangentY
+      const frictionMag = tangentialSpeed * WORLD_COLLISION_FRICTION * repelNorm
+      aa[0] += (tangentX * frictionMag) / Math.max(0.2, a.mass)
+      aa[1] += (tangentY * frictionMag) / Math.max(0.2, a.mass)
+      ab[0] -= (tangentX * frictionMag) / Math.max(0.2, b.mass)
+      ab[1] -= (tangentY * frictionMag) / Math.max(0.2, b.mass)
+    }
+  }
+
+  const drag = Math.pow(WORLD_DRAG, dtNorm)
+  for (const world of worlds) {
+    const a = accel.get(world.id)
+    if (!a) continue
+    world.vx = (world.vx + a[0] * dtNorm) * drag
+    world.vy = (world.vy + a[1] * dtNorm) * drag
+
+    const speed = Math.hypot(world.vx, world.vy)
+    if (speed > WORLD_SPEED_CAP) {
+      const s = WORLD_SPEED_CAP / speed
+      world.vx *= s
+      world.vy *= s
+    }
+    if (speed < WORLD_MIN_SPEED) {
+      const salt = idSalt(world.id)
+      const spinDir = seededUnit(state.globals.seed, salt * 43 + 3) > 0.5 ? 1 : -1
+      const rx = world.position[0]
+      const ry = world.position[1]
+      const rDist = Math.hypot(rx, ry) || 1
+      const tx = (-ry / rDist) * spinDir
+      const ty = (rx / rDist) * spinDir
+      world.vx += tx * WORLD_MIN_SPEED_KICK * dtNorm
+      world.vy += ty * WORLD_MIN_SPEED_KICK * dtNorm
+    }
+
+    world.position[0] += world.vx * dtNorm
+    world.position[1] += world.vy * dtNorm
+  }
+}
+
 const clusteredSignatureOperator: Operator = (state, _params, dt) => {
   const clusters = dynamicClusters(state)
   if (clusters.length === 0) return
@@ -334,11 +463,101 @@ const clusterCeilingOperator: Operator = (state, _params, dt, context) => {
   }
 }
 
+const heliosGelMembraneOperator: Operator = (state, _params, dt) => {
+  const worlds = dynamicInvariants(state)
+  if (worlds.length < HELIOS_LATTICE_WORLD_CAP) return
+
+  const dtNorm = dt * 60
+  const snapshot = worlds.map((world) => ({ id: world.id, x: world.position[0], y: world.position[1] }))
+  const byId = new Map(snapshot.map((entry) => [entry.id, entry]))
+  const centerX = snapshot.reduce((sum, world) => sum + world.x, 0) / snapshot.length
+  const centerY = snapshot.reduce((sum, world) => sum + world.y, 0) / snapshot.length
+  const meanRadius =
+    snapshot.reduce((sum, world) => sum + Math.hypot(world.x - centerX, world.y - centerY), 0) / snapshot.length
+  const singularityProgress = clamp01(
+    (meanRadius - HELIOS_SINGULARITY_TARGET_RADIUS) / Math.max(0.001, HELIOS_SINGULARITY_TARGET_RADIUS * 4)
+  )
+  const springDamp = HELIOS_POSTCAP_SPRING_DAMP
+  const recombineGain = HELIOS_GEL_RECOMBINE_GAIN * springDamp
+  const snapGain = HELIOS_GEL_SNAP_GAIN * springDamp
+
+  for (const world of worlds) {
+    const self = byId.get(world.id)
+    if (!self) continue
+
+    let fx = 0
+    let fy = 0
+    let neighborCount = 0
+    let neighborCx = 0
+    let neighborCy = 0
+
+    for (const neighbor of snapshot) {
+      if (neighbor.id === self.id) continue
+      const dx = neighbor.x - self.x
+      const dy = neighbor.y - self.y
+      const dist = Math.hypot(dx, dy) || 1
+      if (dist > HELIOS_GEL_NEIGHBOR_RADIUS) continue
+
+      neighborCount += 1
+      neighborCx += neighbor.x
+      neighborCy += neighbor.y
+
+      const springNorm = (dist - HELIOS_GEL_REST_DISTANCE) / HELIOS_GEL_NEIGHBOR_RADIUS
+      const springPull =
+        (springNorm * recombineGain + springNorm * Math.abs(springNorm) * snapGain) * dtNorm
+      fx += (dx / dist) * springPull
+      fy += (dy / dist) * springPull
+
+      if (dist < HELIOS_GEL_RESIST_RADIUS) {
+        const resist = ((HELIOS_GEL_RESIST_RADIUS - dist) / HELIOS_GEL_RESIST_RADIUS) * HELIOS_GEL_RESIST_GAIN * dtNorm
+        fx -= (dx / dist) * resist
+        fy -= (dy / dist) * resist
+      }
+    }
+
+    if (neighborCount > 0) {
+      const avgX = neighborCx / neighborCount
+      const avgY = neighborCy / neighborCount
+      fx += (avgX - self.x) * HELIOS_GEL_VISCOSITY * dtNorm
+      fy += (avgY - self.y) * HELIOS_GEL_VISCOSITY * dtNorm
+    }
+
+    const rx = self.x - centerX
+    const ry = self.y - centerY
+    const rDist = Math.hypot(rx, ry) || 1
+    const radialError = meanRadius - rDist
+    const radialPull = radialError * HELIOS_GEL_SURFACE_TENSION * dtNorm
+    fx += (rx / rDist) * radialPull
+    fy += (ry / rDist) * radialPull
+
+    // Helios membrane remains in motion: deterministic tangential drift around centroid.
+    const driftDir = seededUnit(state.globals.seed, idSalt(self.id) * 61 + 19) > 0.5 ? 1 : -1
+    const tx = (-ry / rDist) * driftDir
+    const ty = (rx / rDist) * driftDir
+    const drift = HELIOS_CENTROID_DRIFT_GAIN * (0.6 + singularityProgress * 0.8) * dtNorm
+    fx += tx * drift
+    fy += ty * drift
+
+    const step = Math.hypot(fx, fy)
+    if (step > HELIOS_GEL_MAX_STEP) {
+      const s = HELIOS_GEL_MAX_STEP / step
+      fx *= s
+      fy *= s
+    }
+
+    world.position[0] += fx
+    world.position[1] += fy
+  }
+}
+
 function ensureAnchor(state: SimState, id: string, position: [number, number], strength: number): void {
   if (state.invariants.some((inv) => inv.id === id)) return
   state.invariants.push({
     id,
     position,
+    vx: 0,
+    vy: 0,
+    mass: 1,
     strength,
     dynamic: false,
     energy: 0,
@@ -502,9 +721,21 @@ const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
     if (gradMag > 0.5) continue
 
     const id = `dyn-${state.globals.tick}-${state.invariants.length}`
+    const spawnSalt = idSalt(id)
+    const mass =
+      WORLD_MASS_MIN +
+      seededUnit(state.globals.seed, spawnSalt * 19 + state.globals.tick * 7) * (WORLD_MASS_MAX - WORLD_MASS_MIN)
+    const speed =
+      WORLD_INITIAL_SPEED_MIN +
+      seededUnit(state.globals.seed, spawnSalt * 23 + state.globals.tick * 11) *
+        (WORLD_INITIAL_SPEED_MAX - WORLD_INITIAL_SPEED_MIN)
+    const theta = seededUnit(state.globals.seed, spawnSalt * 29 + state.globals.tick * 13) * Math.PI * 2
     const created: SimInvariant = {
       id,
       position: [basin.x, basin.y],
+      vx: Math.cos(theta) * speed,
+      vy: Math.sin(theta) * speed,
+      mass,
       strength: 0.5,
       dynamic: true,
       energy: 0.35,
@@ -699,6 +930,8 @@ export const Stage4: StagePreset = {
     clusteredSignatureOperator,
     emergentPromotionOperator,
     competitiveEcosystemOperator,
+    worldPhysicsOperator,
+    heliosGelMembraneOperator,
     clusterCeilingOperator,
     distressLifecycleOperator
   ]
@@ -720,6 +953,8 @@ export const Stage5: StagePreset = {
     emergentPromotionOperator,
     competitiveEcosystemOperator,
     selectionPressureOperator,
+    worldPhysicsOperator,
+    heliosGelMembraneOperator,
     clusterCeilingOperator,
     budgetRegulatorOperator,
     distressLifecycleOperator
