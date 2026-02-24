@@ -328,6 +328,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       }
 
       const dynamicInvariants = sim.invariants.filter((inv) => inv.dynamic)
+      const basinById = new Map(sim.basins.map((basin) => [basin.id, basin]))
       const heliosLatticeActive = dynamicInvariants.length >= HELIOS_LATTICE_WORLD_CAP
       if (heliosLatticeActive && dynamicInvariants.length > 0) {
         const centroidXWorld = dynamicInvariants.reduce((sum, inv) => sum + inv.position[0], 0) / dynamicInvariants.length
@@ -355,6 +356,22 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       const topDynamicIds = new Set(
         [...dynamicInvariants].sort((a, b) => b.energy - a.energy).slice(0, 5).map((inv) => inv.id)
       )
+      for (const inv of dynamicInvariants) {
+        if (!inv.originClusterId) continue
+        const origin = basinById.get(inv.originClusterId)
+        if (!origin) continue
+        const sx = inv.position[0] / bounds.scale + bounds.cx
+        const sy = inv.position[1] / bounds.scale + bounds.cy
+        const ox = origin.x / bounds.scale + bounds.cx
+        const oy = origin.y / bounds.scale + bounds.cy
+        const tetherAlpha = Math.max(0.08, Math.min(0.28, 0.16 + inv.stability * 0.14))
+        ctx.beginPath()
+        ctx.moveTo(sx, sy)
+        ctx.lineTo(ox, oy)
+        ctx.strokeStyle = `rgba(255, 208, 128, ${tetherAlpha})`
+        ctx.lineWidth = 0.7
+        ctx.stroke()
+      }
       for (const inv of dynamicInvariants) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy

@@ -36,6 +36,8 @@ export type SimInvariant = {
   vx: number
   vy: number
   mass: number
+  originClusterId?: string
+  originClusterOffset?: Vec2
   strength: number
   dynamic: boolean
   energy: number

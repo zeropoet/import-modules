@@ -61,6 +61,16 @@ const WORLD_DRAG = 0.993
 const WORLD_MIN_SPEED = 0.008
 const WORLD_MIN_SPEED_KICK = 0.006
 const WORLD_SPEED_CAP = 0.075
+const ORIGIN_CLUSTER_TETHER_GAIN = 0.032
+const ORIGIN_CLUSTER_TETHER_DAMP = 0.14
+const ORIGIN_CLUSTER_TETHER_MAX_FORCE = 0.03
+const ORIGIN_CLUSTER_RELEASE_TICKS = 720
+const ORIGIN_CLUSTER_GROUP_PULL_GAIN = 0.012
+const ORIGIN_CLUSTER_GROUP_PULL_MAX = 0.022
+const PARTICLE_COLLAPSE_PULL_GAIN = 0.036
+const PARTICLE_COLLAPSE_SPIRAL_GAIN = 0.012
+const PARTICLE_COLLAPSE_DAMPING = 0.9
+const PARTICLE_COLLAPSE_CORE_RADIUS = 0.06
 
 function seededUnit(seed: number, salt: number): number {
   const x = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
@@ -364,6 +374,60 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
   }
 }
 
+const originClusterTetherOperator: Operator = (state, _params, dt) => {
+  const worlds = dynamicInvariants(state)
+  if (worlds.length === 0) return
+
+  const dtNorm = dt * 60
+  const basinById = new Map(state.basins.map((b) => [b.id, b]))
+  const worldCenterX = worlds.reduce((sum, world) => sum + world.position[0], 0) / worlds.length
+  const worldCenterY = worlds.reduce((sum, world) => sum + world.position[1], 0) / worlds.length
+
+  for (const world of worlds) {
+    if (!world.originClusterId) continue
+    const origin = basinById.get(world.originClusterId)
+    if (!origin) {
+      // Connection exists only while origin cluster is alive.
+      world.originClusterId = undefined
+      world.originClusterOffset = undefined
+      continue
+    }
+
+    const birthTick = state.registry.entries[world.id]?.birthTick ?? state.globals.tick
+    const ageNorm = clamp01((state.globals.tick - birthTick) / ORIGIN_CLUSTER_RELEASE_TICKS)
+    const tetherGain = ORIGIN_CLUSTER_TETHER_GAIN * (1 - ageNorm * 0.75)
+    const tetherDamp = ORIGIN_CLUSTER_TETHER_DAMP * (1 - ageNorm * 0.45)
+    const offset = world.originClusterOffset ?? [0, 0]
+    const targetX = origin.x + offset[0]
+    const targetY = origin.y + offset[1]
+    let fx = (targetX - world.position[0]) * tetherGain
+    let fy = (targetY - world.position[1]) * tetherGain
+    fx += -world.vx * tetherDamp
+    fy += -world.vy * tetherDamp
+
+    // Group drift gradually pulls tethered worlds away from origin cluster.
+    const awayX = worldCenterX - origin.x
+    const awayY = worldCenterY - origin.y
+    const awayDist = Math.hypot(awayX, awayY) || 1
+    const groupPull = Math.min(
+      ORIGIN_CLUSTER_GROUP_PULL_MAX,
+      ORIGIN_CLUSTER_GROUP_PULL_GAIN * ageNorm * Math.max(0.2, awayDist)
+    )
+    fx += (awayX / awayDist) * groupPull
+    fy += (awayY / awayDist) * groupPull
+
+    const fMag = Math.hypot(fx, fy)
+    if (fMag > ORIGIN_CLUSTER_TETHER_MAX_FORCE) {
+      const s = ORIGIN_CLUSTER_TETHER_MAX_FORCE / fMag
+      fx *= s
+      fy *= s
+    }
+
+    world.vx += fx * dtNorm
+    world.vy += fy * dtNorm
+  }
+}
+
 const clusteredSignatureOperator: Operator = (state, _params, dt) => {
   const clusters = dynamicClusters(state)
   if (clusters.length === 0) return
@@ -583,6 +647,7 @@ const oscillationOperator: Operator = (state) => {
 const basinDetectionOperator: Operator = (state, _params, dt) => {
   const worldCount = dynamicWorldCount(state)
   const particleRespawnEnabled = worldCount < HELIOS_LATTICE_WORLD_CAP
+  const collapseParticles = worldCount >= HELIOS_LATTICE_WORLD_CAP
   const targetParticles = particleRespawnEnabled ? TARGET_PARTICLES : state.probes.length
   const step = Math.max(0.003, dt * 0.6)
   const alpha = 0.3
@@ -616,6 +681,16 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
 
     p.vx = (p.vx + forceX + sanctuaryForce[0] + anchorExclusion[0]) * damping
     p.vy = (p.vy + forceY + sanctuaryForce[1] + anchorExclusion[1]) * damping
+    if (collapseParticles) {
+      const cx = -p.x
+      const cy = -p.y
+      const cDist = Math.hypot(cx, cy) || 1
+      const pull = PARTICLE_COLLAPSE_PULL_GAIN * dt * 60
+      const spiralX = (-cy / cDist) * PARTICLE_COLLAPSE_SPIRAL_GAIN * dt * 60
+      const spiralY = (cx / cDist) * PARTICLE_COLLAPSE_SPIRAL_GAIN * dt * 60
+      p.vx = (p.vx + (cx / cDist) * pull + spiralX) * PARTICLE_COLLAPSE_DAMPING
+      p.vy = (p.vy + (cy / cDist) * pull + spiralY) * PARTICLE_COLLAPSE_DAMPING
+    }
     p.x += p.vx
     p.y += p.vy
     p.speed = Math.hypot(p.vx, p.vy)
@@ -630,6 +705,15 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
       if (particleRespawnEnabled) {
         state.probes[i] = randomProbe(state, i + 1)
       } else {
+        state.probes.splice(i, 1)
+        i -= 1
+      }
+      continue
+    }
+
+    if (collapseParticles) {
+      const r = Math.hypot(p.x, p.y)
+      if (r < PARTICLE_COLLAPSE_CORE_RADIUS) {
         state.probes.splice(i, 1)
         i -= 1
       }
@@ -730,12 +814,16 @@ const emergentPromotionOperator: Operator = (state, params, _dt, context) => {
       seededUnit(state.globals.seed, spawnSalt * 23 + state.globals.tick * 11) *
         (WORLD_INITIAL_SPEED_MAX - WORLD_INITIAL_SPEED_MIN)
     const theta = seededUnit(state.globals.seed, spawnSalt * 29 + state.globals.tick * 13) * Math.PI * 2
+    const originOffsetRadius = 0.018 + seededUnit(state.globals.seed, spawnSalt * 31 + state.globals.tick * 17) * 0.05
+    const originOffset: Vec2 = [Math.cos(theta) * originOffsetRadius, Math.sin(theta) * originOffsetRadius]
     const created: SimInvariant = {
       id,
       position: [basin.x, basin.y],
       vx: Math.cos(theta) * speed,
       vy: Math.sin(theta) * speed,
       mass,
+      originClusterId: basin.id,
+      originClusterOffset: originOffset,
       strength: 0.5,
       dynamic: true,
       energy: 0.35,
@@ -931,6 +1019,7 @@ export const Stage4: StagePreset = {
     emergentPromotionOperator,
     competitiveEcosystemOperator,
     worldPhysicsOperator,
+    originClusterTetherOperator,
     heliosGelMembraneOperator,
     clusterCeilingOperator,
     distressLifecycleOperator
@@ -954,6 +1043,7 @@ export const Stage5: StagePreset = {
     competitiveEcosystemOperator,
     selectionPressureOperator,
     worldPhysicsOperator,
+    originClusterTetherOperator,
     heliosGelMembraneOperator,
     clusterCeilingOperator,
     budgetRegulatorOperator,

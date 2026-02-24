@@ -76,7 +76,7 @@ export default function Home() {
   return (
     <main className="shell">
       <div className="center-logo-wrap" aria-hidden="true">
-        <img src="/center-logo.svg" alt="" className="center-logo" />
+        <img src="center-logo.svg" alt="" className="center-logo" />
       </div>
       <aside className="bottom-dock">
         <details className="panel-drop">
