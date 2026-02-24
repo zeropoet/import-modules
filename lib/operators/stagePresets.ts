@@ -1,4 +1,5 @@
 import { event, type Operator, type StagePreset } from "@/lib/operators/types"
+import { getConfiguredAnchors } from "@/lib/state/anchors"
 import type { Basin, ProbeParticle, SimInvariant, SimState } from "@/lib/state/types"
 import { clusterPoints, computeDensityGradient, computeEnergyGradient, dynamicInvariants } from "@/lib/sim/math"
 import { computeMetrics } from "@/lib/metrics"
@@ -23,11 +24,15 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
   const theta = seededUnit(state.globals.seed, state.globals.tick * 149 + salt * 31) * Math.PI * 2
   const px = Math.cos(theta) * radius
   const py = Math.sin(theta) * radius
+  const mass = 0.6 + seededUnit(state.globals.seed, state.globals.tick * 173 + salt * 37) * 1.6
   return {
     x: px,
     y: py,
     prevX: px,
     prevY: py,
+    vx: 0,
+    vy: 0,
+    mass,
     speed: 0,
     age: 0,
     trail: [[px, py]]
@@ -47,9 +52,13 @@ function ensureAnchor(state: SimState, id: string, position: [number, number], s
 }
 
 const closureOperator: Operator = (state) => {
+  const configuredAnchors = getConfiguredAnchors()
+  const configuredAnchorIds = new Set(configuredAnchors.map((anchor) => anchor.id))
   state.globals.energyEnabled = false
-  ensureAnchor(state, "B", [-0.5, 0], 1)
-  ensureAnchor(state, "Ci", [0.5, 0], 1)
+  for (const anchor of configuredAnchors) {
+    ensureAnchor(state, anchor.id, anchor.position, anchor.strength)
+  }
+  state.invariants = state.invariants.filter((inv) => inv.dynamic || configuredAnchorIds.has(inv.id))
   state.anchors = state.invariants.filter((inv) => !inv.dynamic)
 }
 
@@ -76,10 +85,16 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
     p.prevY = p.y
     const gradE = computeEnergyGradient(state, [p.x, p.y])
     const gradD = computeDensityGradient(state, [p.x, p.y])
+    const massScale = 1 / Math.max(0.35, p.mass)
+    const forceX = (-gradE[0] - alpha * gradD[0]) * step * massScale
+    const forceY = (-gradE[1] - alpha * gradD[1]) * step * massScale
+    const damping = 0.86 + Math.min(0.09, p.mass * 0.03)
 
-    p.x += (-gradE[0] - alpha * gradD[0]) * step
-    p.y += (-gradE[1] - alpha * gradD[1]) * step
-    p.speed = Math.hypot(p.x - p.prevX, p.y - p.prevY)
+    p.vx = (p.vx + forceX) * damping
+    p.vy = (p.vy + forceY) * damping
+    p.x += p.vx
+    p.y += p.vy
+    p.speed = Math.hypot(p.vx, p.vy)
     p.age += 1
     p.trail.push([p.x, p.y])
     if (p.trail.length > MAX_PROBE_TRAIL_POINTS) p.trail.shift()

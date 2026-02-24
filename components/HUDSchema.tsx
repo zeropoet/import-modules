@@ -32,7 +32,7 @@ export default function HUDSchema() {
           <p>
             <strong>Type</strong>
             <br />
-            Squares are anchors (`B`, `Ci`), circles are dynamic invariants
+            Squares are fixed constitutional anchors (baseline `B`, `Ci`; extended set optional); circles are dynamic invariants
           </p>
         </div>
         <div className="schema-item">
@@ -63,20 +63,6 @@ export default function HUDSchema() {
             <strong>Elder Orbit</strong>
             <br />
             A small orbiting dot appears on elder invariants to mark advanced age
-          </p>
-        </div>
-        <div className="schema-item">
-          <span className="schema-scaffold">
-            <span className="schema-scaffold-line a" />
-            <span className="schema-scaffold-line b" />
-            <span className="schema-scaffold-node n1" />
-            <span className="schema-scaffold-node n2" />
-            <span className="schema-scaffold-node n3" />
-          </span>
-          <p>
-            <strong>Secondary Scaffold</strong>
-            <br />
-            Decaying memory points from the white trail connect into a constrained support network
           </p>
         </div>
         <div className="schema-item">

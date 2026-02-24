@@ -4,6 +4,7 @@ import { computeMetrics } from "@/lib/metrics"
 import { compose } from "@/lib/operators/compose"
 import type { StagePreset } from "@/lib/operators/types"
 import type { SimEvent } from "@/lib/events/types"
+import { getConfiguredAnchors } from "@/lib/state/anchors"
 import type { SimState, SimInvariant } from "@/lib/state/types"
 
 export const CONSTITUTION_HASH = "constitutional-field-v2"
@@ -37,7 +38,7 @@ function createAnchor(id: string, position: [number, number]): SimInvariant {
 
 export function createSimulationState(seed: number): SimState {
   const initialBudget = 0.3
-  const anchors = [createAnchor("B", [-0.5, 0]), createAnchor("Ci", [0.5, 0])]
+  const anchors = getConfiguredAnchors().map((anchor) => createAnchor(anchor.id, anchor.position))
   const registry = createRegistry()
 
   const state: SimState = {

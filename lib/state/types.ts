@@ -12,6 +12,9 @@ export type ProbeParticle = {
   y: number
   prevX: number
   prevY: number
+  vx: number
+  vy: number
+  mass: number
   speed: number
   age: number
   trail: Vec2[]

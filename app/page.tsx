@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Canvas from "@/components/Canvas"
+import HUDAudio from "@/components/HUDAudio"
 import HUDMetrics from "@/components/HUDMetrics"
 import HUDRegistry from "@/components/HUDRegistry"
 import HUDSchema from "@/components/HUDSchema"
@@ -17,6 +18,7 @@ type Telemetry = {
   metrics: SimMetrics
   registryEntries: RegistryEntry[]
   eventCount: number
+  anchors: Array<{ id: string; position: [number, number] }>
 }
 
 const EMPTY_METRICS: SimMetrics = {
@@ -40,8 +42,16 @@ export default function Home() {
     tick: 0,
     metrics: EMPTY_METRICS,
     registryEntries: [],
-    eventCount: 0
+    eventCount: 0,
+    anchors: []
   })
+
+  const anchorSummary =
+    telemetry.anchors.length > 0
+      ? telemetry.anchors
+          .map((anchor) => `${anchor.id}(${anchor.position[0].toFixed(2)}, ${anchor.position[1].toFixed(2)})`)
+          .join(" · ")
+      : "waiting for telemetry"
 
   useEffect(() => {
     const nextSeed = randomSeed()
@@ -93,9 +103,19 @@ export default function Home() {
               </button>
             </div>
 
+            <HUDAudio
+              telemetry={{
+                tick: telemetry.tick,
+                metrics: telemetry.metrics,
+                eventCount: telemetry.eventCount
+              }}
+            />
+
             <p className="active-seed">Active Seed: {activeSeed}</p>
             <p className="active-seed">Tick: {telemetry.tick}</p>
             <p className="active-seed">Events this frame: {telemetry.eventCount}</p>
+            <p className="active-seed">Anchor Lattice: {telemetry.anchors.length} fixed anchors (configured set)</p>
+            <p className="active-seed">Anchor Map: {anchorSummary}</p>
           </div>
         </details>
 

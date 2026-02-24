@@ -12,6 +12,7 @@ type Telemetry = {
   metrics: SimMetrics
   registryEntries: RegistryEntry[]
   eventCount: number
+  anchors: Array<{ id: string; position: [number, number] }>
 }
 
 type Props = {
@@ -26,13 +27,6 @@ type WorldBounds = {
   cy: number
   halfW: number
   halfH: number
-}
-
-type ScaffoldNode = {
-  x: number
-  y: number
-  strength: number
-  age: number
 }
 
 function getWorldBounds(width: number, height: number): WorldBounds {
@@ -70,46 +64,12 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     const ctx = context
     const trailLayer = document.createElement("canvas")
     const trailContext = trailLayer.getContext("2d")
-    const TRAIL_FALLOFF = 0.02
+    const TRAIL_FALLOFF = 0.08
     const AXIS_WHITE_BLEND = Math.max(0.18, Math.min(0.78, TRAIL_FALLOFF * 20))
-    const CENTER_FORCE_RADIUS_PX = 50
-    const scaffoldNodes: ScaffoldNode[] = []
-    const SCAFFOLD_DECAY = 0.012
-    const SCAFFOLD_MERGE_RADIUS = 0.06
-    const SCAFFOLD_LINK_RADIUS = 0.2
-    const MAX_SCAFFOLD_NODES = 520
     let width = 1
     let height = 1
     let rafId = 0
     let telemetryCounter = 0
-
-    function rememberScaffoldPoint(x: number, y: number, strengthBoost: number) {
-      let bestNode: ScaffoldNode | undefined
-      let bestDistance = Number.POSITIVE_INFINITY
-
-      for (const node of scaffoldNodes) {
-        const distance = Math.hypot(node.x - x, node.y - y)
-        if (distance < SCAFFOLD_MERGE_RADIUS && distance < bestDistance) {
-          bestNode = node
-          bestDistance = distance
-        }
-      }
-
-      if (bestNode) {
-        bestNode.x = bestNode.x * 0.75 + x * 0.25
-        bestNode.y = bestNode.y * 0.75 + y * 0.25
-        bestNode.strength = Math.min(1, bestNode.strength + strengthBoost)
-        bestNode.age += 1
-        return
-      }
-
-      scaffoldNodes.push({
-        x,
-        y,
-        strength: Math.max(0.08, Math.min(1, strengthBoost)),
-        age: 0
-      })
-    }
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1
@@ -140,6 +100,12 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       stepSimulation(sim, activePreset, 0.008)
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
+      const anchorRadiusWorld = sim.anchors.reduce(
+        (max, anchor) => Math.max(max, Math.hypot(anchor.position[0], anchor.position[1])),
+        0
+      )
+      const centerForceRadiusPx = Math.max(24, anchorRadiusWorld / bounds.scale)
+      const centerFillRadiusPx = 40
 
       ctx.clearRect(0, 0, width, height)
       const resolution = 4
@@ -173,39 +139,19 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         }
       }
 
-      for (const node of scaffoldNodes) {
-        node.strength *= 1 - SCAFFOLD_DECAY
-        node.age += 1
-      }
-      for (let i = scaffoldNodes.length - 1; i >= 0; i -= 1) {
-        if (scaffoldNodes[i].strength < 0.03) scaffoldNodes.splice(i, 1)
-      }
-
       ctx.save()
       ctx.lineWidth = 1
-
-      const verticalAxis = ctx.createLinearGradient(bounds.cx, 0, bounds.cx, height)
-      verticalAxis.addColorStop(0, "rgba(255, 255, 255, 0.88)")
-      verticalAxis.addColorStop(0.5 - AXIS_WHITE_BLEND * 0.22, "rgba(239, 68, 68, 0.84)")
-      verticalAxis.addColorStop(0.5 + AXIS_WHITE_BLEND * 0.22, "rgba(239, 68, 68, 0.84)")
-      verticalAxis.addColorStop(1, "rgba(255, 255, 255, 0.88)")
-
-      const horizontalAxis = ctx.createLinearGradient(0, bounds.cy, width, bounds.cy)
-      horizontalAxis.addColorStop(0, "rgba(255, 255, 255, 0.88)")
-      horizontalAxis.addColorStop(0.5 - AXIS_WHITE_BLEND * 0.22, "rgba(239, 68, 68, 0.84)")
-      horizontalAxis.addColorStop(0.5 + AXIS_WHITE_BLEND * 0.22, "rgba(239, 68, 68, 0.84)")
-      horizontalAxis.addColorStop(1, "rgba(255, 255, 255, 0.88)")
 
       ctx.beginPath()
       ctx.moveTo(bounds.cx, 0)
       ctx.lineTo(bounds.cx, height)
-      ctx.strokeStyle = verticalAxis
+      ctx.strokeStyle = "rgba(255, 255, 255, 1)"
       ctx.stroke()
 
       ctx.beginPath()
       ctx.moveTo(0, bounds.cy)
       ctx.lineTo(width, bounds.cy)
-      ctx.strokeStyle = horizontalAxis
+      ctx.strokeStyle = "rgba(255, 255, 255, 1)"
       ctx.stroke()
 
       ctx.fillStyle = `rgba(255, 255, 255, ${0.72 + AXIS_WHITE_BLEND * 0.2})`
@@ -224,21 +170,15 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         0,
         bounds.cx,
         bounds.cy,
-        CENTER_FORCE_RADIUS_PX
+        centerFillRadiusPx
       )
-      coreGradient.addColorStop(0, `rgba(239, 68, 68, ${0.15 + centerForceNorm * 0.26})`)
-      coreGradient.addColorStop(0.68, `rgba(255, 120, 120, ${0.09 + centerForceNorm * 0.2})`)
-      coreGradient.addColorStop(1, "rgba(255, 255, 255, 0)")
+      coreGradient.addColorStop(0, `rgba(239, 68, 68, ${0.08 + centerForceNorm * 0.15})`)
+      coreGradient.addColorStop(0.68, `rgba(239, 68, 68, ${0.03 + centerForceNorm * 0.1})`)
+      coreGradient.addColorStop(1, "rgba(239, 68, 68, 0)")
       ctx.beginPath()
-      ctx.arc(bounds.cx, bounds.cy, CENTER_FORCE_RADIUS_PX, 0, Math.PI * 2)
+      ctx.arc(bounds.cx, bounds.cy, centerFillRadiusPx, 0, Math.PI * 2)
       ctx.fillStyle = coreGradient
       ctx.fill()
-
-      ctx.beginPath()
-      ctx.arc(bounds.cx, bounds.cy, CENTER_FORCE_RADIUS_PX, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.35 + centerForceNorm * 0.45})`
-      ctx.lineWidth = 0.9 + centerForceNorm * 1.6
-      ctx.stroke()
 
       if (activePreset.showProbes) {
         for (const p of sim.probes) {
@@ -246,10 +186,11 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           const sy = p.y / bounds.scale + bounds.cy
           const speedNorm = Math.max(0, Math.min(1, p.speed / 0.018))
           const ageNorm = Math.max(0, Math.min(1, p.age / 450))
+          const massNorm = Math.max(0, Math.min(1, (p.mass - 0.6) / 1.6))
           const hue = 210 - speedNorm * 165
           const lightness = 48 + speedNorm * 26
           const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
-          const size = 1.3 + speedNorm * 1.8 + ageNorm * 3.2
+          const size = 1 + speedNorm * 1.6 + ageNorm * 2.2 + massNorm * 3.2
 
           if (trailContext) {
             const psx = p.prevX / bounds.scale + bounds.cx
@@ -258,69 +199,19 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
             trailContext.moveTo(psx, psy)
             trailContext.lineTo(sx, sy)
             trailContext.strokeStyle = `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.95, alpha))})`
-            trailContext.lineWidth = 0.6 + speedNorm * 1.1
+            trailContext.lineWidth = 0.5 + speedNorm * 1 + massNorm * 0.8
             trailContext.stroke()
           }
 
           const headAlpha = Math.max(0.1, alpha * (0.95 - ageNorm * 0.55))
           ctx.fillStyle = `hsla(${hue}, 96%, ${lightness + 4}%, ${headAlpha})`
           ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
-          ctx.strokeStyle = "rgba(239, 68, 68, 0.88)"
-          ctx.lineWidth = 0.6
-          ctx.strokeRect(sx - size / 2, sy - size / 2, size, size)
 
-          if (p.trail.length > 0) {
-            const remembered = p.trail[0]
-            rememberScaffoldPoint(remembered[0], remembered[1], 0.06 + speedNorm * 0.08)
-          }
         }
-      }
-
-      if (scaffoldNodes.length > MAX_SCAFFOLD_NODES) {
-        scaffoldNodes.sort((a, b) => b.strength - a.strength)
-        scaffoldNodes.length = MAX_SCAFFOLD_NODES
       }
 
       if (trailContext) {
         ctx.drawImage(trailLayer, 0, 0, width, height)
-      }
-
-      if (scaffoldNodes.length > 1) {
-        ctx.save()
-        for (let i = 0; i < scaffoldNodes.length; i += 1) {
-          const node = scaffoldNodes[i]
-          const links = scaffoldNodes
-            .map((candidate, index) => ({
-              index,
-              distance: Math.hypot(candidate.x - node.x, candidate.y - node.y)
-            }))
-            .filter((entry) => entry.index !== i && entry.distance < SCAFFOLD_LINK_RADIUS)
-            .sort((a, b) => a.distance - b.distance)
-            .slice(0, 3)
-
-          for (const link of links) {
-            if (link.index <= i) continue
-            const target = scaffoldNodes[link.index]
-            const alpha = Math.max(0.05, Math.min(0.42, (node.strength + target.strength) * 0.26))
-            ctx.beginPath()
-            ctx.moveTo(node.x / bounds.scale + bounds.cx, node.y / bounds.scale + bounds.cy)
-            ctx.lineTo(target.x / bounds.scale + bounds.cx, target.y / bounds.scale + bounds.cy)
-            ctx.strokeStyle = `rgba(173, 231, 255, ${alpha})`
-            ctx.lineWidth = 0.4 + (node.strength + target.strength) * 0.9
-            ctx.stroke()
-          }
-        }
-
-        for (const node of scaffoldNodes) {
-          const sx = node.x / bounds.scale + bounds.cx
-          const sy = node.y / bounds.scale + bounds.cy
-          const radius = 0.7 + node.strength * 1.6
-          ctx.beginPath()
-          ctx.arc(sx, sy, radius, 0, Math.PI * 2)
-          ctx.fillStyle = `rgba(210, 244, 255, ${Math.max(0.1, Math.min(0.65, node.strength * 0.65))})`
-          ctx.fill()
-        }
-        ctx.restore()
       }
 
       if (activePreset.showBasins) {
@@ -373,13 +264,22 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         ctx.fill()
 
         if (ageNorm > 0.18) {
-          const haloRadius = radius + 4 + ageNorm * 5
+          const haloRadius = radius + 3 + ageNorm * 4.2
           const start = agePhase * Math.PI * 2
-          const sweep = Math.PI * (0.55 + ageNorm * 0.75)
+          const sweep = Math.PI * (0.8 + ageNorm * 0.85)
+          const haloAlpha = 0.16 + ageNorm * 0.28
+
+          // Subtle companion ring ties the arc to the invariant shell.
+          ctx.beginPath()
+          ctx.arc(sx, sy, haloRadius, 0, Math.PI * 2)
+          ctx.strokeStyle = `hsla(${hue + 10}, 82%, 70%, ${haloAlpha * 0.34})`
+          ctx.lineWidth = 0.6 + ageNorm * 0.7
+          ctx.stroke()
+
           ctx.beginPath()
           ctx.arc(sx, sy, haloRadius, start, start + sweep)
-          ctx.strokeStyle = `hsla(${hue + 22}, 84%, 72%, ${0.18 + ageNorm * 0.32})`
-          ctx.lineWidth = 0.8 + ageNorm * 1.1
+          ctx.strokeStyle = `hsla(${hue + 14}, 86%, 74%, ${haloAlpha})`
+          ctx.lineWidth = 0.9 + ageNorm * 1
           ctx.stroke()
         }
 
@@ -395,7 +295,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         }
 
         if (topDynamicIds.has(inv.id)) {
-          ctx.fillStyle = "rgba(239, 68, 68, 0.96)"
+          ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
           ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
           ctx.fillText(`${inv.id} a${age} e${inv.energy.toFixed(1)}`, sx + radius + 4, sy - radius - 4)
         }
@@ -407,10 +307,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         const size = 7
         ctx.fillStyle = "rgba(229, 237, 255, 0.95)"
         ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
-        ctx.strokeStyle = "rgba(239, 68, 68, 0.96)"
-        ctx.lineWidth = 1
-        ctx.strokeRect(sx - size / 2, sy - size / 2, size, size)
-        ctx.fillStyle = "rgba(239, 68, 68, 0.96)"
+        ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
         ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
         ctx.fillText(anchor.id, sx + 7, sy - 7)
       }
@@ -421,7 +318,8 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
           tick: sim.globals.tick,
           metrics: { ...sim.metrics },
           registryEntries,
-          eventCount: sim.events.length
+          eventCount: sim.events.length,
+          anchors: sim.anchors.map((anchor) => ({ id: anchor.id, position: [...anchor.position] as [number, number] }))
         })
       }
 
