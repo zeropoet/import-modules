@@ -79,7 +79,7 @@ The system became self-describing.
 
 ---
 
-## Phase 7: Structural Sovereignty *(Current Phase)*
+## Phase 7: Structural Sovereignty *(Research Direction)*
 
 Phase 7 advances the project beyond modularity into structural self-governance.
 
@@ -160,7 +160,7 @@ components/
 
 Responsible for:
 
-* Phase selection
+* Seed control and runtime telemetry panels
 * Rendering
 * Visualization of metrics
 * User interaction
@@ -252,13 +252,53 @@ Open:
 http://localhost:3000
 ```
 
+Available scripts:
+
+```bash
+npm run dev     # local development
+npm run build   # production build
+npm run start   # run production server
+npm run lint    # lint checks
+```
+
+---
+
+## Runtime Controls
+
+The UI currently loads the latest stage preset (`Stage 5 - Helios Lattice Pressure`) by default.
+
+In the bottom dock:
+
+* **Constitution**: set/replay seed, copy active seed, monitor tick/events, and inspect anchor map.
+* **Registry**: lifecycle stream of invariants and constitutional events.
+* **Legend**: visual schema for state interpretation.
+* **Metrics**: live structural metrics from the simulation engine.
+
+---
+
+## Technical References
+
+Detailed implementation notes live in:
+
+* [`docs/operators.md`](docs/operators.md)
+* [`docs/stages.md`](docs/stages.md)
+* [`docs/metrics.md`](docs/metrics.md)
+
 ---
 
 ## Status
 
 The Constitutional Field is an active research project.
 
-**Phase 7 establishes structural sovereignty:**
+**Current implementation focus: Stage 5 / Helios Lattice Pressure.**
+
+The system currently runs a deterministic operator stack centered on:
+
+* promotion from basins to dynamic worlds
+* ecosystem competition and global budget pressure
+* regulation and lifecycle controls under constraint
+
+**Phase 7 remains the governing research direction:**
 A deterministic generative system whose aesthetic output is the byproduct of enforceable law.
 
 The project is ongoing and expanding.
