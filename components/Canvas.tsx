@@ -71,11 +71,17 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
     const PETAL_CAPTURE_ENABLED = true
     const PETAL_WORLD_CAP = 64
     const PETAL_CLUSTER_SWAY_GAIN = 0.22
+    const SIM_STEP = 0.008
+    const TARGET_FRAME_MS = 16.6667
+    const MAX_FRAME_MS = 50
+    const MAX_SIM_STEPS_PER_FRAME = 4
     let width = 1
     let height = 1
     let rafId = 0
     let telemetryCounter = 0
     let lastFrameTime = 0
+    let simAccumulator = 0
+    let fieldResolution = 4
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1
@@ -104,10 +110,21 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
       sim.globals.worldOverflow = WORLD_OVERFLOW_PX * bounds.scale
       sim.globals.worldHalfW = bounds.halfW
       sim.globals.worldHalfH = bounds.halfH
-      const frameMs = lastFrameTime > 0 ? now - lastFrameTime : 16.6667
+      const frameMsRaw = lastFrameTime > 0 ? now - lastFrameTime : TARGET_FRAME_MS
       lastFrameTime = now
-      const normalizedFrame = Math.max(0.5, Math.min(2, frameMs / 16.6667))
-      stepSimulation(sim, activePreset, 0.008 * normalizedFrame)
+      const frameMs = Math.max(0, Math.min(MAX_FRAME_MS, frameMsRaw))
+      simAccumulator += (frameMs / TARGET_FRAME_MS) * SIM_STEP
+      let simSteps = 0
+      while (simAccumulator >= SIM_STEP && simSteps < MAX_SIM_STEPS_PER_FRAME) {
+        stepSimulation(sim, activePreset, SIM_STEP)
+        simAccumulator -= SIM_STEP
+        simSteps += 1
+      }
+      if (frameMs > 20) {
+        fieldResolution = Math.min(8, fieldResolution + 1)
+      } else if (frameMs < 15) {
+        fieldResolution = Math.max(4, fieldResolution - 1)
+      }
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
       const anchorRadiusWorld = sim.anchors.reduce(
@@ -132,7 +149,7 @@ export default function Canvas({ preset, seed, onTelemetry }: Props) {
         if (!sim.globals.energyEnabled) return 0
         return sim.fields.energy(coords, t)
       }
-      const resolution = 4
+      const resolution = fieldResolution
       for (let x = 0; x < width; x += resolution) {
         for (let y = 0; y < height; y += resolution) {
           const nx = (x - bounds.cx) * bounds.scale
