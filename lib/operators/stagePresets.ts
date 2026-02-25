@@ -7,6 +7,8 @@ import { deriveAlignmentControl, evaluateAlignment } from "@/lib/alignment/contr
 
 const MAX_PROBE_TRAIL_POINTS = 20
 const RESPAWN_RADIUS_PX = 100
+const PARTICLE_INITIAL_SPEED_MIN = 0.0012
+const PARTICLE_INITIAL_SPEED_MAX = 0.0048
 const SANCTUARY_SUPPORT_RADIUS = 0.36
 const SANCTUARY_BASE_PULL = 0.0008
 const SANCTUARY_MAX_PULL = 0.007
@@ -68,6 +70,11 @@ const WORLD_DRAG = 0.988
 const WORLD_MIN_SPEED = 0.008
 const WORLD_MIN_SPEED_KICK = 0.001
 const WORLD_SPEED_CAP = 0.075
+const HELIOS_SMOOTH_SNAP_GAIN_SCALE = 0.42
+const HELIOS_SMOOTH_SEPARATION_SCALE = 0.38
+const HELIOS_SMOOTH_MIN_SPEED_SCALE = 0.55
+const HELIOS_SMOOTH_DRAG_BOOST = 0.007
+const HELIOS_SMOOTH_COLLISION_SCALE = 0.6
 const ORIGIN_CLUSTER_TETHER_GAIN = 0.032
 const ORIGIN_CLUSTER_TETHER_DAMP = 0.14
 const ORIGIN_CLUSTER_TETHER_MAX_FORCE = 0.03
@@ -122,6 +129,14 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
     Math.sqrt(seededUnit(state.globals.seed, state.globals.tick * 131 + salt * 29)) *
     respawnRadiusWorld
   const theta = seededUnit(state.globals.seed, state.globals.tick * 149 + salt * 31) * Math.PI * 2
+  const headingJitter = (seededUnit(state.globals.seed, state.globals.tick * 157 + salt * 41) - 0.5) * 1.2
+  const heading = theta + Math.PI * 0.5 + headingJitter
+  const speed =
+    PARTICLE_INITIAL_SPEED_MIN +
+    seededUnit(state.globals.seed, state.globals.tick * 167 + salt * 43) *
+      (PARTICLE_INITIAL_SPEED_MAX - PARTICLE_INITIAL_SPEED_MIN)
+  const vx = Math.cos(heading) * speed
+  const vy = Math.sin(heading) * speed
   const px = spawnOriginX + Math.cos(theta) * radius
   const py = spawnOriginY + Math.sin(theta) * radius
   const mass = 0.6 + seededUnit(state.globals.seed, state.globals.tick * 173 + salt * 37) * 1.6
@@ -130,10 +145,10 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
     y: py,
     prevX: px,
     prevY: py,
-    vx: 0,
-    vy: 0,
+    vx,
+    vy,
     mass,
-    speed: 0,
+    speed,
     age: 0,
     trail: [[px, py]]
   }
@@ -305,6 +320,13 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
   if (worlds.length === 0) return
 
   const dtNorm = dt * 60
+  const heliosSmooth = worlds.length >= HELIOS_LATTICE_WORLD_CAP
+  const snapGain = WORLD_SNAP_LOCK_GAIN * (heliosSmooth ? HELIOS_SMOOTH_SNAP_GAIN_SCALE : 1)
+  const separationImpulse = WORLD_SEPARATION_IMPULSE * (heliosSmooth ? HELIOS_SMOOTH_SEPARATION_SCALE : 1)
+  const separationSwerve = WORLD_SEPARATION_SWERVE * (heliosSmooth ? HELIOS_SMOOTH_SEPARATION_SCALE : 1)
+  const minSpeed = WORLD_MIN_SPEED * (heliosSmooth ? HELIOS_SMOOTH_MIN_SPEED_SCALE : 1)
+  const minSpeedKick = WORLD_MIN_SPEED_KICK * (heliosSmooth ? HELIOS_SMOOTH_MIN_SPEED_SCALE : 1)
+  const collisionFriction = WORLD_COLLISION_FRICTION * (heliosSmooth ? HELIOS_SMOOTH_COLLISION_SCALE : 1)
   const accel = new Map<string, Vec2>()
   const tick = state.globals.tick
   for (const world of worlds) accel.set(world.id, [0, 0])
@@ -357,7 +379,7 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       if (isLocked) {
         // Snap to a short shared orbit distance and damp relative slip so pair briefly "locks."
         const snapError = dist - WORLD_SNAP_LOCK_REST_DISTANCE
-        const snapForce = snapError * WORLD_SNAP_LOCK_GAIN
+        const snapForce = snapError * snapGain
         aa[0] += (ux * snapForce) / Math.max(0.2, a.mass)
         aa[1] += (uy * snapForce) / Math.max(0.2, a.mass)
         ab[0] -= (ux * snapForce) / Math.max(0.2, b.mass)
@@ -373,8 +395,8 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
         const spinSign = seededUnit(state.globals.seed, idSalt(a.id) * 53 + idSalt(b.id) * 97) > 0.5 ? 1 : -1
         const swerveX = -uy * spinSign
         const swerveY = ux * spinSign
-        const impulseX = ux * WORLD_SEPARATION_IMPULSE + swerveX * WORLD_SEPARATION_SWERVE
-        const impulseY = uy * WORLD_SEPARATION_IMPULSE + swerveY * WORLD_SEPARATION_SWERVE
+        const impulseX = ux * separationImpulse + swerveX * separationSwerve
+        const impulseY = uy * separationImpulse + swerveY * separationSwerve
         aa[0] -= impulseX / Math.max(0.2, a.mass)
         aa[1] -= impulseY / Math.max(0.2, a.mass)
         ab[0] += impulseX / Math.max(0.2, b.mass)
@@ -394,7 +416,7 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       const tangentX = -uy
       const tangentY = ux
       const tangentialSpeed = rvx * tangentX + rvy * tangentY
-      const frictionMag = tangentialSpeed * WORLD_COLLISION_FRICTION * repelNorm
+      const frictionMag = tangentialSpeed * collisionFriction * repelNorm
       aa[0] += (tangentX * frictionMag) / Math.max(0.2, a.mass)
       aa[1] += (tangentY * frictionMag) / Math.max(0.2, a.mass)
       ab[0] -= (tangentX * frictionMag) / Math.max(0.2, b.mass)
@@ -402,7 +424,7 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
     }
   }
 
-  const drag = Math.pow(WORLD_DRAG, dtNorm)
+  const drag = Math.pow(Math.min(0.999, WORLD_DRAG + (heliosSmooth ? HELIOS_SMOOTH_DRAG_BOOST : 0)), dtNorm)
   for (const world of worlds) {
     const a = accel.get(world.id)
     if (!a) continue
@@ -415,7 +437,7 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       world.vx *= s
       world.vy *= s
     }
-    if (speed < WORLD_MIN_SPEED) {
+    if (speed < minSpeed) {
       const salt = idSalt(world.id)
       const spinDir = seededUnit(state.globals.seed, salt * 43 + 3) > 0.5 ? 1 : -1
       const rx = world.position[0]
@@ -423,8 +445,8 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
       const rDist = Math.hypot(rx, ry) || 1
       const tx = (-ry / rDist) * spinDir
       const ty = (rx / rDist) * spinDir
-      world.vx += tx * WORLD_MIN_SPEED_KICK * dtNorm
-      world.vy += ty * WORLD_MIN_SPEED_KICK * dtNorm
+      world.vx += tx * minSpeedKick * dtNorm
+      world.vy += ty * minSpeedKick * dtNorm
     }
 
     world.position[0] += world.vx * dtNorm
@@ -736,7 +758,6 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
       dt * 60
     )
     const damping = 0.86 + Math.min(0.09, p.mass * 0.03)
-
     p.vx = (p.vx + forceX + sanctuaryForce[0] + anchorExclusion[0]) * damping
     p.vy = (p.vy + forceY + sanctuaryForce[1] + anchorExclusion[1]) * damping
     if (collapseParticles) {

@@ -73,18 +73,20 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
     const PETAL_WORLD_CAP = 64
     const PETAL_CLUSTER_SWAY_GAIN = 0.22
     const RIPPLE_WORLD_CAP = 24
-    const RIPPLE_DENSITY_GAIN = 0.06
-    const RIPPLE_ENERGY_GAIN = 0.09
-    const RIPPLE_SPATIAL_FREQ = 34
-    const RIPPLE_TIME_FREQ = 7.4
+    const RIPPLE_DENSITY_GAIN = 0.032
+    const RIPPLE_ENERGY_GAIN = 0.046
+    const RIPPLE_SPATIAL_FREQ = 22
+    const RIPPLE_TIME_FREQ = 5.2
     const RIPPLE_DECAY = 5.8
-    const HELIOS_RIPPLE_BOOST = 2.2
+    const HELIOS_RIPPLE_BOOST = 1.35
     const PARTICLE_RIPPLE_CAP = 40
-    const PARTICLE_RIPPLE_DENSITY_GAIN = 0.035
-    const PARTICLE_RIPPLE_ENERGY_GAIN = 0.055
-    const PARTICLE_RIPPLE_SPATIAL_FREQ = 52
-    const PARTICLE_RIPPLE_TIME_FREQ = 10.5
+    const PARTICLE_RIPPLE_DENSITY_GAIN = 0.016
+    const PARTICLE_RIPPLE_ENERGY_GAIN = 0.026
+    const PARTICLE_RIPPLE_SPATIAL_FREQ = 31
+    const PARTICLE_RIPPLE_TIME_FREQ = 6.8
     const PARTICLE_RIPPLE_DECAY = 8.2
+    const SPAWNING_WORLD_FIRE_TICKS = 90
+    const HELIOS_GHOST_TRAIL_MAX_POINTS = 120
     const VIGNETTE_STRENGTH = 1
     const SIM_STEP = 0.008
     const TARGET_FRAME_MS = 16.6667
@@ -389,7 +391,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
           const hue = 8 + flameHeat * 46
           const lightness = 34 + flameHeat * 40
           const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
-          const size = 1 + speedNorm * 1.6 + ageNorm * 2.2 + massNorm * 3.2
+          const size = 1.8 + speedNorm * 2.1 + ageNorm * 2.9 + massNorm * 4.1
 
           if (trailContext) {
             const psx = p.prevX / bounds.scale + bounds.cx
@@ -567,6 +569,39 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
         ctx.lineWidth = 0.7
         ctx.stroke()
       }
+      if (heliosLatticeActive) {
+        for (const inv of dynamicInvariants) {
+          const entry = registryById.get(inv.id)
+          if (!entry || entry.positionHistory.length < 3) continue
+
+          const history = entry.positionHistory
+          const stride = Math.max(1, Math.ceil(history.length / HELIOS_GHOST_TRAIL_MAX_POINTS))
+          const points: Array<[number, number]> = []
+          for (let i = 0; i < history.length; i += stride) {
+            const point = history[i]
+            points.push([point[0] / bounds.scale + bounds.cx, point[1] / bounds.scale + bounds.cy])
+          }
+          const last = history[history.length - 1]
+          points.push([last[0] / bounds.scale + bounds.cx, last[1] / bounds.scale + bounds.cy])
+          if (points.length < 3) continue
+
+          const start = points[0]
+          const end = points[points.length - 1]
+          const ghostGradient = ctx.createLinearGradient(start[0], start[1], end[0], end[1])
+          ghostGradient.addColorStop(0, "rgba(228, 242, 255, 0.02)")
+          ghostGradient.addColorStop(0.5, "rgba(210, 232, 255, 0.08)")
+          ghostGradient.addColorStop(1, "rgba(240, 248, 255, 0.22)")
+
+          ctx.beginPath()
+          ctx.moveTo(points[0][0], points[0][1])
+          for (let i = 1; i < points.length; i += 1) {
+            ctx.lineTo(points[i][0], points[i][1])
+          }
+          ctx.strokeStyle = ghostGradient
+          ctx.lineWidth = 0.7
+          ctx.stroke()
+        }
+      }
       for (const inv of dynamicInvariants) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy
@@ -580,9 +615,23 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
         const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
         const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
-        const shellFill = "rgba(0, 0, 0, 0.42)"
-        const ringStroke = "rgba(0, 0, 0, 0.96)"
-        const coreFill = "rgba(0, 0, 0, 0.9)"
+        const spawning = age <= SPAWNING_WORLD_FIRE_TICKS
+        const fireHue = 8 + energyNorm * 42 + (1 - ageNorm) * 10
+        const shellFill = spawning
+          ? `hsla(${Math.max(4, fireHue - 12)}, 95%, ${36 + energyNorm * 14}%, 0.44)`
+          : heliosLatticeActive
+            ? "rgba(255, 255, 255, 0.34)"
+            : "rgba(0, 0, 0, 0.42)"
+        const ringStroke = spawning
+          ? `hsla(${fireHue}, 98%, ${56 + energyNorm * 18}%, 0.98)`
+          : heliosLatticeActive
+            ? "rgba(255, 255, 255, 0.96)"
+            : "rgba(0, 0, 0, 0.96)"
+        const coreFill = spawning
+          ? `hsla(${Math.min(64, fireHue + 6)}, 100%, ${64 + energyNorm * 14}%, 0.92)`
+          : heliosLatticeActive
+            ? "rgba(255, 255, 255, 0.9)"
+            : "rgba(0, 0, 0, 0.9)"
 
         ctx.beginPath()
         ctx.arc(sx, sy, radius + 2, 0, Math.PI * 2)
