@@ -69,24 +69,26 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
     const AXIS_OPACITY = 0.52
     const CENTER_FORCE_OPACITY = 0.36
     const HELIOS_LATTICE_WORLD_CAP = 64
+    const FAST_RENDER_MODE = true
     const PETAL_CAPTURE_ENABLED = false
     const PETAL_WORLD_CAP = 64
     const PETAL_CLUSTER_SWAY_GAIN = 0.22
-    const RIPPLE_WORLD_CAP = 24
+    const RIPPLE_WORLD_CAP = FAST_RENDER_MODE ? 16 : 24
+    const FIELD_DYNAMIC_INFLUENCE_CAP = FAST_RENDER_MODE ? 96 : 180
     const RIPPLE_DENSITY_GAIN = 0.032
     const RIPPLE_ENERGY_GAIN = 0.046
     const RIPPLE_SPATIAL_FREQ = 22
     const RIPPLE_TIME_FREQ = 5.2
     const RIPPLE_DECAY = 5.8
     const HELIOS_RIPPLE_BOOST = 1.35
-    const PARTICLE_RIPPLE_CAP = 40
+    const PARTICLE_RIPPLE_CAP = FAST_RENDER_MODE ? 20 : 40
     const PARTICLE_RIPPLE_DENSITY_GAIN = 0.016
     const PARTICLE_RIPPLE_ENERGY_GAIN = 0.026
     const PARTICLE_RIPPLE_SPATIAL_FREQ = 31
     const PARTICLE_RIPPLE_TIME_FREQ = 6.8
     const PARTICLE_RIPPLE_DECAY = 8.2
     const SPAWNING_WORLD_FIRE_TICKS = 90
-    const HELIOS_GHOST_TRAIL_MAX_POINTS = 120
+    const HELIOS_GHOST_TRAIL_MAX_POINTS = FAST_RENDER_MODE ? 72 : 120
     const VIGNETTE_STRENGTH = 1
     const SIM_STEP = 0.008
     const TARGET_FRAME_MS = 16.6667
@@ -98,7 +100,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
     let telemetryCounter = 0
     let lastFrameTime = 0
     let simAccumulator = 0
-    let fieldResolution = 3
+    let fieldResolution = FAST_RENDER_MODE ? 4 : 3
     const WORLD_PICK_RADIUS_PX = 30
     let dragState: {
       pointerId: number
@@ -224,9 +226,9 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
         simSteps += 1
       }
       if (frameMs > 20) {
-        fieldResolution = Math.min(6, fieldResolution + 1)
+        fieldResolution = Math.min(FAST_RENDER_MODE ? 8 : 6, fieldResolution + 1)
       } else if (frameMs < 15) {
-        fieldResolution = Math.max(3, fieldResolution - 1)
+        fieldResolution = Math.max(FAST_RENDER_MODE ? 4 : 3, fieldResolution - 1)
       }
       const registryEntries = getRegistryEntries(sim.registry)
       const registryById = new Map(registryEntries.map((entry) => [entry.id, entry]))
@@ -236,25 +238,39 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
       )
       const centerForceRadiusPx = Math.max(8, (anchorRadiusWorld / bounds.scale) * 0.3)
       const dynamicWorlds = sim.invariants.filter((inv) => inv.dynamic)
-      const rippleWorlds = dynamicWorlds.slice(0, RIPPLE_WORLD_CAP)
-      const rippleParticles = sim.probes.slice(0, PARTICLE_RIPPLE_CAP)
+      const dynamicInfluenceWorlds = dynamicWorlds.slice(0, FIELD_DYNAMIC_INFLUENCE_CAP)
+      const rippleWorlds = dynamicWorlds.slice(0, RIPPLE_WORLD_CAP).map((world) => ({
+        x: world.position[0],
+        y: world.position[1],
+        speedNorm: Math.max(0, Math.min(1, Math.hypot(world.vx, world.vy) / 0.055))
+      }))
+      const rippleParticles = sim.probes.slice(0, PARTICLE_RIPPLE_CAP).map((p) => ({
+        x: p.x,
+        y: p.y,
+        speedNorm: Math.max(0, Math.min(1, p.speed / 0.028))
+      }))
       const heliosRippleBoost = dynamicWorlds.length >= HELIOS_LATTICE_WORLD_CAP ? HELIOS_RIPPLE_BOOST : 1
 
       ctx.clearRect(0, 0, width, height)
       const sampleDensityAtTime = (coords: [number, number], t: number): number => {
         let base = sim.fields.density(coords, t)
-        for (const inv of sim.invariants) {
+        for (const anchor of sim.anchors) {
+          const dx = anchor.position[0] - coords[0]
+          const dy = anchor.position[1] - coords[1]
+          const dist = Math.hypot(dx, dy)
+          base += anchor.strength * 1.5 * Math.exp(-dist * 4)
+        }
+        for (const inv of dynamicInfluenceWorlds) {
           const dx = inv.position[0] - coords[0]
           const dy = inv.position[1] - coords[1]
           const dist = Math.hypot(dx, dy)
-          const influence = inv.dynamic ? inv.strength : inv.strength * 1.5
-          base += influence * Math.exp(-dist * 4)
+          base += inv.strength * Math.exp(-dist * 4)
         }
         for (const world of rippleWorlds) {
-          const dx = world.position[0] - coords[0]
-          const dy = world.position[1] - coords[1]
+          const dx = world.x - coords[0]
+          const dy = world.y - coords[1]
           const dist = Math.hypot(dx, dy)
-          const speedNorm = Math.max(0, Math.min(1, Math.hypot(world.vx, world.vy) / 0.055))
+          const speedNorm = world.speedNorm
           if (speedNorm <= 1e-4) continue
           const envelope = Math.exp(-dist * RIPPLE_DECAY) * speedNorm
           const phase = dist * RIPPLE_SPATIAL_FREQ - t * (RIPPLE_TIME_FREQ + speedNorm * 1.8)
@@ -264,7 +280,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
           const dx = p.x - coords[0]
           const dy = p.y - coords[1]
           const dist = Math.hypot(dx, dy)
-          const speedNorm = Math.max(0, Math.min(1, p.speed / 0.028))
+          const speedNorm = p.speedNorm
           if (speedNorm <= 1e-4) continue
           const envelope = Math.exp(-dist * PARTICLE_RIPPLE_DECAY) * speedNorm
           const phase = dist * PARTICLE_RIPPLE_SPATIAL_FREQ - t * (PARTICLE_RIPPLE_TIME_FREQ + speedNorm * 2.4)
@@ -276,10 +292,10 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
         if (!sim.globals.energyEnabled) return 0
         let base = sim.fields.energy(coords, t)
         for (const world of rippleWorlds) {
-          const dx = world.position[0] - coords[0]
-          const dy = world.position[1] - coords[1]
+          const dx = world.x - coords[0]
+          const dy = world.y - coords[1]
           const dist = Math.hypot(dx, dy)
-          const speedNorm = Math.max(0, Math.min(1, Math.hypot(world.vx, world.vy) / 0.055))
+          const speedNorm = world.speedNorm
           if (speedNorm <= 1e-4) continue
           const envelope = Math.exp(-dist * (RIPPLE_DECAY - 0.9)) * (0.35 + speedNorm * 0.65)
           const phase = dist * (RIPPLE_SPATIAL_FREQ * 0.92) - t * (RIPPLE_TIME_FREQ + speedNorm * 2.1)
@@ -289,7 +305,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
           const dx = p.x - coords[0]
           const dy = p.y - coords[1]
           const dist = Math.hypot(dx, dy)
-          const speedNorm = Math.max(0, Math.min(1, p.speed / 0.028))
+          const speedNorm = p.speedNorm
           if (speedNorm <= 1e-4) continue
           const envelope = Math.exp(-dist * (PARTICLE_RIPPLE_DECAY - 1.1)) * (0.3 + speedNorm * 0.7)
           const phase =
@@ -569,7 +585,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
         ctx.lineWidth = 0.7
         ctx.stroke()
       }
-      if (heliosLatticeActive) {
+      if (heliosLatticeActive && (!FAST_RENDER_MODE || sim.globals.tick % 3 === 0)) {
         for (const inv of dynamicInvariants) {
           const entry = registryById.get(inv.id)
           if (!entry || entry.positionHistory.length < 3) continue
@@ -602,6 +618,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
           ctx.stroke()
         }
       }
+      const showTopLabels = !FAST_RENDER_MODE || frameMs < 20
       for (const inv of dynamicInvariants) {
         const sx = inv.position[0] / bounds.scale + bounds.cx
         const sy = inv.position[1] / bounds.scale + bounds.cy
@@ -682,7 +699,7 @@ export default function Canvas({ preset, seed, showOriginConnections = false, on
           ctx.fill()
         }
 
-        if (topDynamicIds.has(inv.id)) {
+        if (showTopLabels && topDynamicIds.has(inv.id)) {
           ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
           ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
           const distressLabel = distressed ? ` d${distressRemaining}` : ""
