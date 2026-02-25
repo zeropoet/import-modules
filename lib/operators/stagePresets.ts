@@ -6,12 +6,12 @@ import { computeMetrics } from "@/lib/metrics"
 import { deriveAlignmentControl, evaluateAlignment } from "@/lib/alignment/controller"
 
 const MAX_PROBE_TRAIL_POINTS = 20
-const RESPAWN_RADIUS_PX = 100
-const PARTICLE_INITIAL_SPEED_MIN = 0.0012
-const PARTICLE_INITIAL_SPEED_MAX = 0.0048
+const RESPAWN_RADIUS_PX = 140
+const PARTICLE_INITIAL_SPEED_MIN = 0.0003
+const PARTICLE_INITIAL_SPEED_MAX = 0.0011
 const SANCTUARY_SUPPORT_RADIUS = 0.36
-const SANCTUARY_BASE_PULL = 0.0008
-const SANCTUARY_MAX_PULL = 0.007
+const SANCTUARY_BASE_PULL = 0.0006
+const SANCTUARY_MAX_PULL = 0.0054
 const SANCTUARY_EDGE_SOFT_START = 0.7
 const SANCTUARY_INV_BASE_PULL = 0.004
 const SANCTUARY_INV_MAX_PULL = 0.042
@@ -35,6 +35,8 @@ const DYNAMIC_CLUSTER_HARVEST_TO_BUDGET = 0.35
 const DYNAMIC_CLUSTER_BUDGET_MAX = 1.4
 const HELIOS_LATTICE_WORLD_CAP = 64
 const TARGET_PARTICLES = 324
+const STARTUP_PROBE_LAUNCH_DELAY_TICKS = 6
+const STARTUP_PROBE_LAUNCH_RATE = 6
 const ANCHOR_EXCLUSION_RADIUS = 0.13
 const ANCHOR_EXCLUSION_PROBE_FORCE = 0.008
 const ANCHOR_EXCLUSION_WORLD_FORCE = 0.022
@@ -81,10 +83,14 @@ const ORIGIN_CLUSTER_TETHER_MAX_FORCE = 0.03
 const ORIGIN_CLUSTER_RELEASE_TICKS = 720
 const ORIGIN_CLUSTER_GROUP_PULL_GAIN = 0.012
 const ORIGIN_CLUSTER_GROUP_PULL_MAX = 0.022
-const PARTICLE_COLLAPSE_PULL_GAIN = 0.036
-const PARTICLE_COLLAPSE_SPIRAL_GAIN = 0.012
-const PARTICLE_COLLAPSE_DAMPING = 0.9
-const PARTICLE_COLLAPSE_CORE_RADIUS = 0.06
+const ARCH_PROBE_RING_GAIN = 0.016
+const ARCH_PROBE_SWIRL_GAIN = 0.0045
+const ARCH_PROBE_RIB_GAIN = 0.0022
+const ARCH_PROBE_DAMPING = 0.972
+const ARCH_PROBE_WORLD_REACTION_GAIN = 0.0008
+const ARCH_PROBE_WORLD_GRAVITY_GAIN = 0.0013
+const ARCH_PROBE_WORLD_ACCEL_CAP = 0.006
+const ARCH_PROBE_WORLD_SAMPLE_CAP = 196
 const CONTAINMENT = {
   domainRadius: 0.72,
   softBand: 0.18,
@@ -131,7 +137,7 @@ function randomProbe(state: SimState, salt: number): ProbeParticle {
     Math.sqrt(seededUnit(state.globals.seed, state.globals.tick * 131 + salt * 29)) *
     respawnRadiusWorld
   const theta = seededUnit(state.globals.seed, state.globals.tick * 149 + salt * 31) * Math.PI * 2
-  const headingJitter = (seededUnit(state.globals.seed, state.globals.tick * 157 + salt * 41) - 0.5) * 1.2
+  const headingJitter = (seededUnit(state.globals.seed, state.globals.tick * 157 + salt * 41) - 0.5) * 1.8
   const heading = theta + Math.PI * 0.5 + headingJitter
   const speed =
     PARTICLE_INITIAL_SPEED_MIN +
@@ -343,6 +349,34 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
     if (!a) continue
     a[0] += (gx / gDist) * gravity / mass
     a[1] += (gy / gDist) * gravity / mass
+  }
+
+  if (heliosSmooth && state.probes.length > 0) {
+    const sampleStride = Math.max(1, Math.ceil(state.probes.length / ARCH_PROBE_WORLD_SAMPLE_CAP))
+    for (const world of worlds) {
+      const a = accel.get(world.id)
+      if (!a) continue
+      let probeAx = 0
+      let probeAy = 0
+      for (let i = 0; i < state.probes.length; i += sampleStride) {
+        const p = state.probes[i]
+        const dx = p.x - world.position[0]
+        const dy = p.y - world.position[1]
+        const distSq = dx * dx + dy * dy + 0.004
+        const dist = Math.sqrt(distSq)
+        const pull = (ARCH_PROBE_WORLD_GRAVITY_GAIN * Math.max(0.35, p.mass)) / distSq
+        probeAx += (dx / dist) * pull
+        probeAy += (dy / dist) * pull
+      }
+      const probeMag = Math.hypot(probeAx, probeAy)
+      if (probeMag > ARCH_PROBE_WORLD_ACCEL_CAP) {
+        const s = ARCH_PROBE_WORLD_ACCEL_CAP / probeMag
+        probeAx *= s
+        probeAy *= s
+      }
+      a[0] += probeAx
+      a[1] += probeAy
+    }
   }
 
   for (let i = 0; i < worlds.length; i += 1) {
@@ -728,11 +762,36 @@ const oscillationOperator: Operator = (state) => {
 
 const basinDetectionOperator: Operator = (state, _params, dt) => {
   const worldCount = dynamicWorldCount(state)
-  const particleRespawnEnabled = worldCount < HELIOS_LATTICE_WORLD_CAP
-  const collapseParticles = worldCount >= HELIOS_LATTICE_WORLD_CAP
-  const targetParticles = particleRespawnEnabled ? TARGET_PARTICLES : state.probes.length
+  const heliosArchitecturalPhase = worldCount >= HELIOS_LATTICE_WORLD_CAP
+  const particleRespawnEnabled = !heliosArchitecturalPhase
+  const startupLaunchTicks = Math.max(0, state.globals.tick - STARTUP_PROBE_LAUNCH_DELAY_TICKS + 1)
+  const startupLaunchTarget = startupLaunchTicks * STARTUP_PROBE_LAUNCH_RATE
+  const targetParticles = particleRespawnEnabled ? Math.min(TARGET_PARTICLES, startupLaunchTarget) : state.probes.length
   const step = Math.max(0.003, dt * 0.6)
   const alpha = 0.3
+  const worlds = dynamicInvariants(state)
+  const dtNorm = dt * 60
+  let worldCenterX = 0
+  let worldCenterY = 0
+  let targetRadius = 0.2
+  let spinSign = 1
+
+  if (heliosArchitecturalPhase && worlds.length > 0) {
+    worldCenterX = worlds.reduce((sum, world) => sum + world.position[0], 0) / worlds.length
+    worldCenterY = worlds.reduce((sum, world) => sum + world.position[1], 0) / worlds.length
+    const meanRadius =
+      worlds.reduce(
+        (sum, world) => sum + Math.hypot(world.position[0] - worldCenterX, world.position[1] - worldCenterY),
+        0
+      ) / worlds.length
+    targetRadius = Math.max(0.14, meanRadius * 1.45 + 0.06)
+    const angularMomentum = worlds.reduce((sum, world) => {
+      const rx = world.position[0] - worldCenterX
+      const ry = world.position[1] - worldCenterY
+      return sum + (rx * world.vy - ry * world.vx)
+    }, 0)
+    spinSign = angularMomentum >= 0 ? 1 : -1
+  }
 
   while (state.probes.length < targetParticles) {
     state.probes.push(randomProbe(state, state.probes.length + 1))
@@ -760,18 +819,50 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
       dt * 60
     )
     const damping = 0.86 + Math.min(0.09, p.mass * 0.03)
-    p.vx = (p.vx + forceX + sanctuaryForce[0] + anchorExclusion[0]) * damping
-    p.vy = (p.vy + forceY + sanctuaryForce[1] + anchorExclusion[1]) * damping
-    if (collapseParticles) {
-      const cx = -p.x
-      const cy = -p.y
-      const cDist = Math.hypot(cx, cy) || 1
-      const pull = PARTICLE_COLLAPSE_PULL_GAIN * dt * 60
-      const spiralX = (-cy / cDist) * PARTICLE_COLLAPSE_SPIRAL_GAIN * dt * 60
-      const spiralY = (cx / cDist) * PARTICLE_COLLAPSE_SPIRAL_GAIN * dt * 60
-      p.vx = (p.vx + (cx / cDist) * pull + spiralX) * PARTICLE_COLLAPSE_DAMPING
-      p.vy = (p.vy + (cy / cDist) * pull + spiralY) * PARTICLE_COLLAPSE_DAMPING
+    let nextVx = (p.vx + forceX + sanctuaryForce[0] + anchorExclusion[0]) * damping
+    let nextVy = (p.vy + forceY + sanctuaryForce[1] + anchorExclusion[1]) * damping
+    if (heliosArchitecturalPhase && worlds.length > 0) {
+      let nearestWorld = worlds[0]
+      let nearestDx = nearestWorld.position[0] - p.x
+      let nearestDy = nearestWorld.position[1] - p.y
+      let nearestDistSq = nearestDx * nearestDx + nearestDy * nearestDy
+      for (let w = 1; w < worlds.length; w += 1) {
+        const wx = worlds[w].position[0] - p.x
+        const wy = worlds[w].position[1] - p.y
+        const distSq = wx * wx + wy * wy
+        if (distSq < nearestDistSq) {
+          nearestDistSq = distSq
+          nearestWorld = worlds[w]
+          nearestDx = wx
+          nearestDy = wy
+        }
+      }
+      const localDx = p.x - nearestWorld.position[0]
+      const localDy = p.y - nearestWorld.position[1]
+      const localDist = Math.hypot(localDx, localDy) || 1
+      const localUx = localDx / localDist
+      const localUy = localDy / localDist
+      const localTx = -localUy * spinSign
+      const localTy = localUx * spinSign
+      const localTargetRadius = Math.max(0.06, Math.min(0.2, targetRadius * 0.38))
+      const ringError = localTargetRadius - localDist
+      const ringPull = ringError * ARCH_PROBE_RING_GAIN * dtNorm
+      const swirl =
+        ARCH_PROBE_SWIRL_GAIN * (0.6 + Math.min(1.4, localDist / Math.max(0.001, localTargetRadius))) * dtNorm
+      const angle = Math.atan2(localDy, localDx)
+      const rib = Math.sin(angle * 5 + state.globals.time * 2.6 + p.mass * 1.5) * ARCH_PROBE_RIB_GAIN * dtNorm
+      const nearestDist = Math.sqrt(nearestDistSq + 1e-6)
+      const worldPull =
+        (ARCH_PROBE_WORLD_REACTION_GAIN * Math.max(0.45, nearestWorld.mass) * dtNorm) / (nearestDistSq + 0.01)
+      nextVx =
+        (nextVx + localUx * ringPull + localTx * swirl + localUx * rib + (nearestDx / nearestDist) * worldPull) *
+        ARCH_PROBE_DAMPING
+      nextVy =
+        (nextVy + localUy * ringPull + localTy * swirl + localUy * rib + (nearestDy / nearestDist) * worldPull) *
+        ARCH_PROBE_DAMPING
     }
+    p.vx = nextVx
+    p.vy = nextVy
     p.x += p.vx
     p.y += p.vy
     p.speed = Math.hypot(p.vx, p.vy)
@@ -785,19 +876,32 @@ const basinDetectionOperator: Operator = (state, _params, dt) => {
     ) {
       if (particleRespawnEnabled) {
         state.probes[i] = randomProbe(state, i + 1)
+      } else if (heliosArchitecturalPhase && worlds.length > 0) {
+        const worldIndex = Math.floor(
+          seededUnit(state.globals.seed, state.globals.tick * 211 + i * 47) * worlds.length
+        )
+        const hostWorld = worlds[Math.min(worlds.length - 1, worldIndex)]
+        const theta = seededUnit(state.globals.seed, state.globals.tick * 223 + i * 59) * Math.PI * 2
+        const localTargetRadius = Math.max(0.06, Math.min(0.2, targetRadius * 0.38))
+        const radiusJitter =
+          localTargetRadius * (0.78 + seededUnit(state.globals.seed, state.globals.tick * 229 + i * 71) * 0.44)
+        const rx = hostWorld.position[0] + Math.cos(theta) * radiusJitter
+        const ry = hostWorld.position[1] + Math.sin(theta) * radiusJitter
+        const tx = -Math.sin(theta) * spinSign
+        const ty = Math.cos(theta) * spinSign
+        const kick = PARTICLE_INITIAL_SPEED_MIN * 1.8
+        p.x = rx
+        p.y = ry
+        p.prevX = rx
+        p.prevY = ry
+        p.vx = tx * kick
+        p.vy = ty * kick
+        p.trail = [[rx, ry]]
       } else {
         state.probes.splice(i, 1)
         i -= 1
       }
       continue
-    }
-
-    if (collapseParticles) {
-      const r = Math.hypot(p.x, p.y)
-      if (r < PARTICLE_COLLAPSE_CORE_RADIUS) {
-        state.probes.splice(i, 1)
-        i -= 1
-      }
     }
   }
 

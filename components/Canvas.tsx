@@ -101,6 +101,9 @@ export default function Canvas({
     const PARTICLE_RIPPLE_SPATIAL_FREQ = 31
     const PARTICLE_RIPPLE_TIME_FREQ = 6.8
     const PARTICLE_RIPPLE_DECAY = 8.2
+    const STARTUP_PROBE_TRAIL_TICKS = 220
+    const STARTUP_PROBE_TRAIL_WIDTH_BOOST = 8
+    const STARTUP_PROBE_TRAIL_ALPHA_BOOST = 0.22
     const SPAWNING_WORLD_FIRE_TICKS = 90
     const HELIOS_GHOST_TRAIL_MAX_POINTS = 240
     const WORLD_TRAIL_CAP = 160
@@ -268,8 +271,23 @@ export default function Canvas({
       )
       const centerForceRadiusPx = Math.max(8, (anchorRadiusWorld / bounds.scale) * 0.3)
       const dynamicWorlds = sim.invariants.filter((inv) => inv.dynamic)
+      const heliosArchitecturalPhase = dynamicWorlds.length >= HELIOS_LATTICE_WORLD_CAP
+      let worldCentroidX = 0
+      let worldCentroidY = 0
+      let worldSpinSign = 1
+      if (heliosArchitecturalPhase && dynamicWorlds.length > 0) {
+        worldCentroidX = dynamicWorlds.reduce((sum, world) => sum + world.position[0], 0) / dynamicWorlds.length
+        worldCentroidY = dynamicWorlds.reduce((sum, world) => sum + world.position[1], 0) / dynamicWorlds.length
+        const angularMomentum = dynamicWorlds.reduce((sum, world) => {
+          const rx = world.position[0] - worldCentroidX
+          const ry = world.position[1] - worldCentroidY
+          return sum + (rx * world.vy - ry * world.vx)
+        }, 0)
+        worldSpinSign = angularMomentum >= 0 ? 1 : -1
+      }
       const rippleGainScale = renderControls?.rippleGain ?? 1
       const rippleFrequencyScale = renderControls?.rippleFrequency ?? 1
+      const startupTrailBoost = Math.max(0, Math.min(1, 1 - sim.globals.tick / STARTUP_PROBE_TRAIL_TICKS))
       const worldCap = Math.max(1, Math.floor(RIPPLE_WORLD_CAP * adaptiveQuality))
       const particleCap = Math.max(0, Math.floor(PARTICLE_RIPPLE_CAP * adaptiveQuality))
       const influenceCap = Math.max(32, Math.floor(FIELD_DYNAMIC_INFLUENCE_CAP * adaptiveQuality))
@@ -286,7 +304,7 @@ export default function Canvas({
         speedNorm: Math.max(0, Math.min(1, p.speed / 0.028))
       }))
         : []
-      const heliosRippleBoost = dynamicWorlds.length >= HELIOS_LATTICE_WORLD_CAP ? HELIOS_RIPPLE_BOOST : 1
+      const heliosRippleBoost = heliosArchitecturalPhase ? HELIOS_RIPPLE_BOOST : 1
 
       ctx.clearRect(0, 0, width, height)
       const sampleDensityAtTime = (coords: [number, number], t: number): number => {
@@ -459,42 +477,123 @@ export default function Canvas({
       ctx.fill()
 
       if (activePreset.showProbes) {
-        for (const p of sim.probes) {
-          const sx = p.x / bounds.scale + bounds.cx
-          const sy = p.y / bounds.scale + bounds.cy
-          const speedNorm = Math.max(0, Math.min(1, p.speed / 0.018))
-          const ageNorm = Math.max(0, Math.min(1, p.age / 450))
-          const massNorm = Math.max(0, Math.min(1, (p.mass - 0.6) / 1.6))
-          const flameHeat = Math.max(0, Math.min(1, speedNorm * 0.78 + massNorm * 0.22))
-          const hue = 8 + flameHeat * 46
-          const lightness = 34 + flameHeat * 40
-          const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
-          const size = 1.8 + speedNorm * 2.1 + ageNorm * 2.9 + massNorm * 4.1
+        if (heliosArchitecturalPhase && dynamicWorlds.length > 0) {
+          const centerSX = worldCentroidX / bounds.scale + bounds.cx
+          const centerSY = worldCentroidY / bounds.scale + bounds.cy
+          const projected = sim.probes.map((p) => {
+            const sx = p.x / bounds.scale + bounds.cx
+            const sy = p.y / bounds.scale + bounds.cy
+            return {
+              p,
+              sx,
+              sy,
+              angle: Math.atan2(p.y - worldCentroidY, p.x - worldCentroidX),
+              radiusPx: Math.hypot(sx - centerSX, sy - centerSY),
+              speedNorm: Math.max(0, Math.min(1, p.speed / 0.026))
+            }
+          })
+          projected.sort((a, b) => a.angle - b.angle)
+          const architectureGlow = ctx.createRadialGradient(centerSX, centerSY, 0, centerSX, centerSY, 180)
+          architectureGlow.addColorStop(0, "rgba(255, 228, 179, 0.22)")
+          architectureGlow.addColorStop(0.45, "rgba(255, 188, 109, 0.1)")
+          architectureGlow.addColorStop(1, "rgba(255, 255, 255, 0)")
+          ctx.beginPath()
+          ctx.arc(centerSX, centerSY, 180, 0, Math.PI * 2)
+          ctx.fillStyle = architectureGlow
+          ctx.fill()
 
-          if (trailContext) {
-            const psx = p.prevX / bounds.scale + bounds.cx
-            const psy = p.prevY / bounds.scale + bounds.cy
-            const trailGradient = trailContext.createLinearGradient(psx, psy, sx, sy)
-            trailGradient.addColorStop(
-              0,
-              `hsla(${Math.max(4, hue - 10)}, 96%, ${Math.max(18, lightness - 16)}%, ${Math.max(0.03, alpha * 0.14)})`
-            )
-            trailGradient.addColorStop(
-              1,
-              `hsla(${hue}, 100%, ${Math.min(84, lightness + 6)}%, ${Math.max(0.14, Math.min(0.95, alpha))})`
-            )
-            trailContext.beginPath()
-            trailContext.moveTo(psx, psy)
-            trailContext.lineTo(sx, sy)
-            trailContext.strokeStyle = trailGradient
-            trailContext.lineWidth = 5
-            trailContext.stroke()
+          const neighborStride = Math.max(2, Math.floor(5 - adaptiveQuality * 2))
+          for (let i = 0; i < projected.length; i += 1) {
+            const curr = projected[i]
+            const nextIndex = (i + neighborStride * worldSpinSign + projected.length) % projected.length
+            const next = projected[nextIndex]
+            const spokeAlpha = Math.max(0.04, Math.min(0.24, 0.22 - curr.radiusPx / 520 + curr.speedNorm * 0.1))
+            const line = ctx.createLinearGradient(curr.sx, curr.sy, next.sx, next.sy)
+            line.addColorStop(0, `rgba(255, 214, 153, ${spokeAlpha})`)
+            line.addColorStop(1, `rgba(255, 241, 217, ${spokeAlpha * 0.5})`)
+            ctx.beginPath()
+            ctx.moveTo(curr.sx, curr.sy)
+            ctx.lineTo(next.sx, next.sy)
+            ctx.strokeStyle = line
+            ctx.lineWidth = 0.8
+            ctx.stroke()
           }
 
-          const headAlpha = Math.max(0.1, alpha * (0.95 - ageNorm * 0.55))
-          ctx.fillStyle = `hsla(${hue}, 100%, ${Math.min(90, lightness + 10)}%, ${headAlpha})`
-          ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
+          for (const node of projected) {
+            const hue = 26 + node.speedNorm * 24
+            const nodeAlpha = Math.max(0.14, Math.min(0.55, 0.38 - node.radiusPx / 620 + node.speedNorm * 0.2))
+            const nodeSize = 1.2 + node.speedNorm * 2 + Math.max(0, 2.4 - node.radiusPx / 180)
+            ctx.fillStyle = `hsla(${hue}, 96%, 72%, ${nodeAlpha})`
+            ctx.fillRect(node.sx - nodeSize / 2, node.sy - nodeSize / 2, nodeSize, nodeSize)
 
+            if (trailContext) {
+              const psx = node.p.prevX / bounds.scale + bounds.cx
+              const psy = node.p.prevY / bounds.scale + bounds.cy
+              trailContext.beginPath()
+              trailContext.moveTo(psx, psy)
+              trailContext.lineTo(node.sx, node.sy)
+              trailContext.strokeStyle = `rgba(255, 204, 128, ${Math.max(0.06, nodeAlpha * 0.3)})`
+              trailContext.lineWidth = 2.6
+              trailContext.stroke()
+            }
+          }
+        } else {
+          for (const p of sim.probes) {
+            const sx = p.x / bounds.scale + bounds.cx
+            const sy = p.y / bounds.scale + bounds.cy
+            const speedNorm = Math.max(0, Math.min(1, p.speed / 0.018))
+            const ageNorm = Math.max(0, Math.min(1, p.age / 450))
+            const massNorm = Math.max(0, Math.min(1, (p.mass - 0.6) / 1.6))
+            const flameHeat = Math.max(0, Math.min(1, speedNorm * 0.78 + massNorm * 0.22))
+            const hue = 8 + flameHeat * 46
+            const lightness = 34 + flameHeat * 40
+            const alpha = Math.max(0.12, 0.85 - ageNorm * 0.6) * (0.7 + speedNorm * 0.3)
+            const size = 1.8 + speedNorm * 2.1 + ageNorm * 2.9 + massNorm * 4.1
+
+            if (trailContext) {
+              const psx = p.prevX / bounds.scale + bounds.cx
+              const psy = p.prevY / bounds.scale + bounds.cy
+              if (startupTrailBoost > 0.04 && p.trail.length > 2) {
+                const historySpan = Math.min(p.trail.length - 1, 6 + Math.floor(startupTrailBoost * 10))
+                const startIndex = Math.max(0, p.trail.length - 1 - historySpan)
+                for (let h = startIndex + 1; h < p.trail.length; h += 1) {
+                  const prev = p.trail[h - 1]
+                  const curr = p.trail[h]
+                  const hx0 = prev[0] / bounds.scale + bounds.cx
+                  const hy0 = prev[1] / bounds.scale + bounds.cy
+                  const hx1 = curr[0] / bounds.scale + bounds.cx
+                  const hy1 = curr[1] / bounds.scale + bounds.cy
+                  const segProgress = (h - startIndex) / Math.max(1, historySpan)
+                  const segAlpha = (0.06 + segProgress * 0.24) * startupTrailBoost
+                  trailContext.beginPath()
+                  trailContext.moveTo(hx0, hy0)
+                  trailContext.lineTo(hx1, hy1)
+                  trailContext.strokeStyle = `hsla(${hue}, 100%, ${Math.min(84, lightness + 8)}%, ${segAlpha})`
+                  trailContext.lineWidth = 1
+                  trailContext.stroke()
+                }
+              }
+              const trailGradient = trailContext.createLinearGradient(psx, psy, sx, sy)
+              trailGradient.addColorStop(
+                0,
+                `hsla(${Math.max(4, hue - 10)}, 96%, ${Math.max(18, lightness - 16)}%, ${Math.max(0.03, alpha * (0.14 + startupTrailBoost * STARTUP_PROBE_TRAIL_ALPHA_BOOST))})`
+              )
+              trailGradient.addColorStop(
+                1,
+                `hsla(${hue}, 100%, ${Math.min(84, lightness + 6)}%, ${Math.max(0.14, Math.min(0.95, alpha + startupTrailBoost * STARTUP_PROBE_TRAIL_ALPHA_BOOST))})`
+              )
+              trailContext.beginPath()
+              trailContext.moveTo(psx, psy)
+              trailContext.lineTo(sx, sy)
+              trailContext.strokeStyle = trailGradient
+              trailContext.lineWidth = 1
+              trailContext.stroke()
+            }
+
+            const headAlpha = Math.max(0.1, alpha * (0.95 - ageNorm * 0.55))
+            ctx.fillStyle = `hsla(${hue}, 100%, ${Math.min(90, lightness + 10)}%, ${headAlpha})`
+            ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
+          }
         }
       }
 
