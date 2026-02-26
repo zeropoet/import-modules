@@ -104,6 +104,8 @@ export default function Canvas({
     const STARTUP_PROBE_TRAIL_TICKS = 220
     const STARTUP_PROBE_TRAIL_WIDTH_BOOST = 8
     const STARTUP_PROBE_TRAIL_ALPHA_BOOST = 0.22
+    const PHASED_PROBE_MIN_AGE = 18
+    const PHASED_PROBE_RAMP_TICKS = 36
     const SPAWNING_WORLD_FIRE_TICKS = 90
     const HELIOS_GHOST_TRAIL_MAX_POINTS = 240
     const WORLD_TRAIL_CAP = 160
@@ -128,6 +130,11 @@ export default function Canvas({
       offsetX: number
       offsetY: number
     } | null = null
+
+    function phasedProbeWeight(age: number): number {
+      const t = Math.max(0, Math.min(1, (age - PHASED_PROBE_MIN_AGE) / PHASED_PROBE_RAMP_TICKS))
+      return t * t * (3 - 2 * t)
+    }
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1
@@ -520,10 +527,21 @@ export default function Canvas({
           }
 
           for (const node of projected) {
-            const hue = 26 + node.speedNorm * 24
-            const nodeAlpha = Math.max(0.14, Math.min(0.55, 0.38 - node.radiusPx / 620 + node.speedNorm * 0.2))
+            const phaseWeight = phasedProbeWeight(node.p.age)
+            const massNorm = Math.max(0, Math.min(1, (node.p.mass - 0.6) / 1.6))
+            const flameHeat = Math.max(0, Math.min(1, node.speedNorm * 0.72 + massNorm * 0.2 + phaseWeight * 0.24))
+            const flameHue = 8 + flameHeat * 46
+            const flameLightness = 36 + flameHeat * 38
+            const hue = phaseWeight > 0 ? flameHue : 26 + node.speedNorm * 24
+            const nodeAlpha = Math.max(
+              0.14,
+              Math.min(0.72, 0.38 - node.radiusPx / 620 + node.speedNorm * 0.2 + phaseWeight * 0.16)
+            )
             const nodeSize = 1.2 + node.speedNorm * 2 + Math.max(0, 2.4 - node.radiusPx / 180)
-            ctx.fillStyle = `hsla(${hue}, 96%, 72%, ${nodeAlpha})`
+            ctx.fillStyle =
+              phaseWeight > 0
+                ? `hsla(${hue}, 100%, ${Math.min(90, flameLightness + 10)}%, ${nodeAlpha})`
+                : `hsla(${hue}, 96%, 72%, ${nodeAlpha})`
             ctx.fillRect(node.sx - nodeSize / 2, node.sy - nodeSize / 2, nodeSize, nodeSize)
 
             if (trailContext) {
@@ -532,7 +550,10 @@ export default function Canvas({
               trailContext.beginPath()
               trailContext.moveTo(psx, psy)
               trailContext.lineTo(node.sx, node.sy)
-              trailContext.strokeStyle = `rgba(255, 204, 128, ${Math.max(0.06, nodeAlpha * 0.3)})`
+              trailContext.strokeStyle =
+                phaseWeight > 0
+                  ? `hsla(${Math.max(4, hue - 8)}, 100%, ${Math.min(86, flameLightness + 6)}%, ${Math.max(0.08, nodeAlpha * 0.42)})`
+                  : `rgba(255, 204, 128, ${Math.max(0.06, nodeAlpha * 0.3)})`
               trailContext.lineWidth = 2.6
               trailContext.stroke()
             }
@@ -927,9 +948,11 @@ export default function Canvas({
         const size = 7
         ctx.fillStyle = "rgba(229, 237, 255, 0.95)"
         ctx.fillRect(sx - size / 2, sy - size / 2, size, size)
-        ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
-        ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
-        ctx.fillText(anchor.id, sx + 7, sy - 7)
+        if (anchor.id === "B" || anchor.id === "Ci") {
+          ctx.fillStyle = "rgba(255, 255, 255, 0.96)"
+          ctx.font = "11px Avenir Next, Segoe UI, sans-serif"
+          ctx.fillText(anchor.id, sx + 7, sy - 7)
+        }
       }
 
       telemetryCounter += 1

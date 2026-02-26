@@ -88,9 +88,12 @@ const ARCH_PROBE_SWIRL_GAIN = 0.0045
 const ARCH_PROBE_RIB_GAIN = 0.0022
 const ARCH_PROBE_DAMPING = 0.972
 const ARCH_PROBE_WORLD_REACTION_GAIN = 0.0008
-const ARCH_PROBE_WORLD_GRAVITY_GAIN = 0.0013
 const ARCH_PROBE_WORLD_ACCEL_CAP = 0.006
 const ARCH_PROBE_WORLD_SAMPLE_CAP = 196
+const ARCH_PROBE_PHASED_MIN_AGE = 18
+const ARCH_PROBE_PHASED_RAMP_TICKS = 36
+const ARCH_PROBE_PHASED_WORLD_PULL_GAIN = 0.012
+const ARCH_PROBE_PHASED_WORLD_DAMP = 0.1
 const CONTAINMENT = {
   domainRadius: 0.72,
   softBand: 0.18,
@@ -356,18 +359,31 @@ const worldPhysicsOperator: Operator = (state, _params, dt) => {
     for (const world of worlds) {
       const a = accel.get(world.id)
       if (!a) continue
-      let probeAx = 0
-      let probeAy = 0
+      let weightedX = 0
+      let weightedY = 0
+      let weightSum = 0
       for (let i = 0; i < state.probes.length; i += sampleStride) {
         const p = state.probes[i]
+        const phaseNorm = clamp01((p.age - ARCH_PROBE_PHASED_MIN_AGE) / ARCH_PROBE_PHASED_RAMP_TICKS)
+        if (phaseNorm <= 0) continue
+        const phaseWeight = smoothstep01(phaseNorm)
         const dx = p.x - world.position[0]
         const dy = p.y - world.position[1]
-        const distSq = dx * dx + dy * dy + 0.004
-        const dist = Math.sqrt(distSq)
-        const pull = (ARCH_PROBE_WORLD_GRAVITY_GAIN * Math.max(0.35, p.mass)) / distSq
-        probeAx += (dx / dist) * pull
-        probeAy += (dy / dist) * pull
+        const distSq = dx * dx + dy * dy
+        const proximityWeight = 1 / (distSq + 0.02)
+        const massWeight = Math.max(0.35, p.mass)
+        const weight = proximityWeight * massWeight * phaseWeight
+        weightedX += p.x * weight
+        weightedY += p.y * weight
+        weightSum += weight
       }
+      if (weightSum <= 0) continue
+      const targetX = weightedX / weightSum
+      const targetY = weightedY / weightSum
+      let probeAx = (targetX - world.position[0]) * ARCH_PROBE_PHASED_WORLD_PULL_GAIN
+      let probeAy = (targetY - world.position[1]) * ARCH_PROBE_PHASED_WORLD_PULL_GAIN
+      probeAx -= world.vx * ARCH_PROBE_PHASED_WORLD_DAMP
+      probeAy -= world.vy * ARCH_PROBE_PHASED_WORLD_DAMP
       const probeMag = Math.hypot(probeAx, probeAy)
       if (probeMag > ARCH_PROBE_WORLD_ACCEL_CAP) {
         const s = ARCH_PROBE_WORLD_ACCEL_CAP / probeMag
