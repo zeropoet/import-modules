@@ -84,9 +84,6 @@ export default function Canvas({
     const AXIS_OPACITY = 0.52
     const CENTER_FORCE_OPACITY = 0.36
     const HELIOS_LATTICE_WORLD_CAP = 64
-    const PETAL_CAPTURE_ENABLED = false
-    const PETAL_WORLD_CAP = 64
-    const PETAL_CLUSTER_SWAY_GAIN = 0.22
     const RIPPLE_WORLD_CAP = 24
     const FIELD_DYNAMIC_INFLUENCE_CAP = 180
     const RIPPLE_DENSITY_GAIN = 0.032
@@ -106,6 +103,8 @@ export default function Canvas({
     const STARTUP_PROBE_TRAIL_ALPHA_BOOST = 0.22
     const PHASED_PROBE_MIN_AGE = 18
     const PHASED_PROBE_RAMP_TICKS = 36
+    const PHASED_IGNITION_MIN = 0.2
+    const HELIOS_IGNITION_LINK_CAP = 120
     const SPAWNING_WORLD_FIRE_TICKS = 90
     const HELIOS_GHOST_TRAIL_MAX_POINTS = 240
     const WORLD_TRAIL_CAP = 160
@@ -514,16 +513,50 @@ export default function Canvas({
             const curr = projected[i]
             const nextIndex = (i + neighborStride * worldSpinSign + projected.length) % projected.length
             const next = projected[nextIndex]
-            const spokeAlpha = Math.max(0.04, Math.min(0.24, 0.22 - curr.radiusPx / 520 + curr.speedNorm * 0.1))
+            const currPhase = phasedProbeWeight(curr.p.age)
+            const nextPhase = phasedProbeWeight(next.p.age)
+            const phaseWeight = Math.max(currPhase, nextPhase)
+            const spokeAlpha = Math.max(
+              0.035,
+              Math.min(0.22, 0.14 - curr.radiusPx / 620 + curr.speedNorm * 0.08 + phaseWeight * 0.07)
+            )
+            const dx = next.sx - curr.sx
+            const dy = next.sy - curr.sy
+            const segLen = Math.hypot(dx, dy) || 1
+            const nx = -dy / segLen
+            const ny = dx / segLen
+            const jitterSeed = i * 0.97 + sim.globals.tick * 0.09 + segLen * 0.013
+            const jitter = Math.sin(jitterSeed) * (0.45 + phaseWeight * 1.15)
+            const midX = (curr.sx + next.sx) * 0.5 + nx * jitter
+            const midY = (curr.sy + next.sy) * 0.5 + ny * jitter
+            const flameHue = 12 + Math.max(curr.speedNorm, next.speedNorm) * 44
             const line = ctx.createLinearGradient(curr.sx, curr.sy, next.sx, next.sy)
-            line.addColorStop(0, `rgba(255, 214, 153, ${spokeAlpha})`)
-            line.addColorStop(1, `rgba(255, 241, 217, ${spokeAlpha * 0.5})`)
+            if (phaseWeight > 0) {
+              line.addColorStop(0, `hsla(${flameHue}, 95%, 66%, ${spokeAlpha * 0.9})`)
+              line.addColorStop(1, `hsla(${Math.min(64, flameHue + 8)}, 96%, 78%, ${spokeAlpha * 0.28})`)
+            } else {
+              line.addColorStop(0, `rgba(255, 214, 153, ${spokeAlpha})`)
+              line.addColorStop(1, `rgba(255, 241, 217, ${spokeAlpha * 0.5})`)
+            }
             ctx.beginPath()
             ctx.moveTo(curr.sx, curr.sy)
-            ctx.lineTo(next.sx, next.sy)
+            ctx.quadraticCurveTo(midX, midY, next.sx, next.sy)
             ctx.strokeStyle = line
-            ctx.lineWidth = 0.8
+            ctx.lineWidth = 0.6 + phaseWeight * 0.3
             ctx.stroke()
+
+            if (phaseWeight > 0.34 && i % 5 === 0) {
+              const branchLen = Math.min(14, segLen * (0.16 + phaseWeight * 0.16))
+              const branchDir = Math.sin(jitterSeed * 1.7) > 0 ? 1 : -1
+              const bx = midX + (dx / segLen) * branchLen * 0.34 + nx * branchDir * branchLen
+              const by = midY + (dy / segLen) * branchLen * 0.34 + ny * branchDir * branchLen
+              ctx.beginPath()
+              ctx.moveTo(midX, midY)
+              ctx.lineTo(bx, by)
+              ctx.strokeStyle = `hsla(${flameHue}, 96%, 72%, ${spokeAlpha * 0.22})`
+              ctx.lineWidth = 0.35 + phaseWeight * 0.18
+              ctx.stroke()
+            }
           }
 
           for (const node of projected) {
@@ -622,73 +655,6 @@ export default function Canvas({
         ctx.drawImage(trailLayer, 0, 0, width, height)
       }
 
-      if (PETAL_CAPTURE_ENABLED) {
-        const tau = Math.PI * 2
-        const worlds = sim.invariants.filter((inv) => inv.dynamic)
-        const petalWorlds = [...worlds].slice(0, PETAL_WORLD_CAP)
-        if (petalWorlds.length === 0) {
-          // no-op
-        } else {
-          const meanWorldRadius =
-            petalWorlds.reduce((sum, world) => sum + Math.hypot(world.position[0], world.position[1]), 0) /
-            petalWorlds.length
-        let worldClusterX = 0
-        let worldClusterY = 0
-        for (const world of petalWorlds) {
-          const vMag = Math.hypot(world.vx, world.vy)
-          const posTheta = Math.atan2(world.position[1], world.position[0])
-          const velTheta = Math.atan2(world.vy, world.vx || 1e-6)
-          const blendTheta = posTheta * 0.4 + velTheta * 0.6
-          const weight = Math.max(0.2, vMag * 40 + world.energy * 0.05 + world.stability * 0.35)
-          worldClusterX += Math.cos(blendTheta) * weight
-          worldClusterY += Math.sin(blendTheta) * weight
-        }
-          const clusterTheta = Math.atan2(worldClusterY, worldClusterX)
-
-        for (let i = 0; i < petalWorlds.length; i += 1) {
-          const world = petalWorlds[i]
-          const worldRadius = Math.hypot(world.position[0], world.position[1])
-          const density = Math.max(0, Math.min(1, world.mass / 1.8))
-          const unfurl = Math.max(0, Math.min(1, (sim.globals.tick - 80) / 420))
-          const maxRadiusPx = (worldRadius / bounds.scale) * (0.42 + unfurl * 0.85)
-          const worldTheta = Math.atan2(world.position[1], world.position[0])
-          const vMag = Math.hypot(world.vx, world.vy)
-          const velTheta = Math.atan2(world.vy, world.vx || 1e-6)
-          const flowTheta = worldTheta * 0.5 + velTheta * 0.5
-          const baseThetaRaw = flowTheta + sim.globals.time * (0.04 + vMag * 1.8)
-          const deltaToCluster = Math.atan2(Math.sin(clusterTheta - baseThetaRaw), Math.cos(clusterTheta - baseThetaRaw))
-          const sway = Math.sin(sim.globals.time * 1.6 + i * 0.45 + deltaToCluster * 2.4) * PETAL_CLUSTER_SWAY_GAIN
-          const baseTheta = baseThetaRaw + deltaToCluster * PETAL_CLUSTER_SWAY_GAIN * 0.35 + sway * (0.25 + density * 0.35)
-          const petalSpan = (tau / Math.max(10, petalWorlds.length)) * (0.65 + density * 0.4)
-          const p0 = baseTheta - petalSpan
-          const p1 = baseTheta + petalSpan
-          const tip = maxRadiusPx + density * 36 + (vMag / Math.max(0.0001, meanWorldRadius)) * 10
-          const growthNorm = Math.max(0, Math.min(1, tip / Math.max(1, Math.min(width, height) * 0.42)))
-          const gravityDrop = tip * growthNorm * (0.08 + unfurl * 0.18)
-          const curl = growthNorm * (0.1 + density * 0.16)
-          const tipTheta = baseTheta + Math.sin(sim.globals.time * 1.2 + i * 0.4) * 0.05 * growthNorm
-          const cp = tip * (0.48 + density * 0.22)
-          const c0x = bounds.cx + Math.cos(p0) * cp - Math.sin(p0) * tip * curl * 0.24
-          const c0y = bounds.cy + Math.sin(p0) * cp + Math.cos(p0) * tip * curl * 0.14 + gravityDrop * 0.42
-          const c1x = bounds.cx + Math.cos(p1) * cp + Math.sin(p1) * tip * curl * 0.24
-          const c1y = bounds.cy + Math.sin(p1) * cp - Math.cos(p1) * tip * curl * 0.14 + gravityDrop * 0.42
-          const worldTipX = world.position[0] / bounds.scale + bounds.cx
-          const worldTipY = world.position[1] / bounds.scale + bounds.cy
-          const tipX = worldTipX + Math.cos(tipTheta) * tip * 0.18 - Math.sin(baseTheta) * tip * curl * 0.1
-          const tipY = worldTipY + Math.sin(tipTheta) * tip * 0.18 + gravityDrop
-          const hue = 12 + density * 36 + i * 0.9
-          const alpha = 0.04 + density * 0.13
-
-          ctx.beginPath()
-          ctx.moveTo(bounds.cx, bounds.cy)
-          ctx.quadraticCurveTo(c0x, c0y, tipX, tipY)
-          ctx.quadraticCurveTo(c1x, c1y, bounds.cx, bounds.cy)
-          ctx.fillStyle = `hsla(${hue}, 92%, ${46 + density * 24}%, ${alpha})`
-          ctx.fill()
-        }
-        }
-      }
-
       if (activePreset.showBasins) {
         const basinNodes = [...sim.basins].sort((a, b) => b.count - a.count).slice(0, 10)
 
@@ -707,12 +673,33 @@ export default function Canvas({
       const dynamicInvariants = sim.invariants.filter((inv) => inv.dynamic)
       const basinById = new Map(sim.basins.map((basin) => [basin.id, basin]))
       const heliosLatticeActive = dynamicInvariants.length >= HELIOS_LATTICE_WORLD_CAP
+      const worldFlameInfluence = new Map<string, number>()
+      const phasedProbes = heliosLatticeActive
+        ? sim.probes.filter((probe) => phasedProbeWeight(probe.age) >= PHASED_IGNITION_MIN)
+        : []
+      if (heliosLatticeActive && dynamicInvariants.length > 0 && phasedProbes.length > 0) {
+        const probeStride = Math.max(1, Math.ceil(phasedProbes.length / 180))
+        for (const inv of dynamicInvariants) {
+          let influence = 0
+          for (let i = 0; i < phasedProbes.length; i += probeStride) {
+            const p = phasedProbes[i]
+            const dx = p.x - inv.position[0]
+            const dy = p.y - inv.position[1]
+            const distSq = dx * dx + dy * dy + 0.006
+            const phase = phasedProbeWeight(p.age)
+            const speedNorm = Math.max(0, Math.min(1, p.speed / 0.024))
+            influence += (phase * (0.62 + speedNorm * 0.38)) / (1 + distSq * 130)
+          }
+          worldFlameInfluence.set(inv.id, Math.max(0, Math.min(1, influence * 0.9)))
+        }
+      }
       const worldStyleFor = (inv: (typeof dynamicInvariants)[number]) => {
         const birthTick = registryById.get(inv.id)?.birthTick ?? sim.globals.tick
         const age = sim.globals.tick - birthTick
         const ageNorm = Math.max(0, Math.min(1, age / 250))
         const energyNorm = Math.max(0, Math.min(1, inv.energy / 25))
         const spawning = age <= SPAWNING_WORLD_FIRE_TICKS
+        const ignition = worldFlameInfluence.get(inv.id) ?? 0
         const fireHue = 8 + energyNorm * 42 + (1 - ageNorm) * 10
 
         if (spawning) {
@@ -722,11 +709,59 @@ export default function Canvas({
             coreFill: `hsla(${Math.min(64, fireHue + 6)}, 100%, ${64 + energyNorm * 14}%, 0.92)`
           }
         }
+        if (heliosLatticeActive && ignition > 0.03) {
+          const igniteHue = 12 + energyNorm * 34 + ignition * 14
+          return {
+            shellFill: `hsla(${Math.max(6, igniteHue - 10)}, 96%, ${42 + ignition * 12}%, ${0.3 + ignition * 0.24})`,
+            ringStroke: `hsla(${igniteHue}, 100%, ${66 + ignition * 16}%, ${0.86 + ignition * 0.14})`,
+            coreFill: `hsla(${Math.min(74, igniteHue + 10)}, 100%, ${72 + ignition * 12}%, ${0.82 + ignition * 0.16})`
+          }
+        }
 
         return {
           shellFill: "rgba(255, 255, 255, 0.34)",
           ringStroke: "rgba(255, 255, 255, 0.96)",
           coreFill: "rgba(255, 255, 255, 0.9)"
+        }
+      }
+      if (heliosLatticeActive && phasedProbes.length > 0 && dynamicInvariants.length > 0 && trailContext) {
+        const linkStride = Math.max(1, Math.ceil(phasedProbes.length / HELIOS_IGNITION_LINK_CAP))
+        for (let i = 0; i < phasedProbes.length; i += linkStride) {
+          const p = phasedProbes[i]
+          let nearest = dynamicInvariants[0]
+          let nearestDistSq =
+            (nearest.position[0] - p.x) * (nearest.position[0] - p.x) +
+            (nearest.position[1] - p.y) * (nearest.position[1] - p.y)
+          for (let w = 1; w < dynamicInvariants.length; w += 1) {
+            const inv = dynamicInvariants[w]
+            const dx = inv.position[0] - p.x
+            const dy = inv.position[1] - p.y
+            const dSq = dx * dx + dy * dy
+            if (dSq < nearestDistSq) {
+              nearest = inv
+              nearestDistSq = dSq
+            }
+          }
+          if (nearestDistSq > 0.06) continue
+          const phase = phasedProbeWeight(p.age)
+          const flame = worldFlameInfluence.get(nearest.id) ?? 0
+          if (phase <= 0.05 || flame <= 0.03) continue
+          const psx = p.x / bounds.scale + bounds.cx
+          const psy = p.y / bounds.scale + bounds.cy
+          const wsx = nearest.position[0] / bounds.scale + bounds.cx
+          const wsy = nearest.position[1] / bounds.scale + bounds.cy
+          const link = trailContext.createLinearGradient(psx, psy, wsx, wsy)
+          const hue = 10 + flame * 40
+          const alpha = 0.05 + phase * 0.12 + flame * 0.1
+          link.addColorStop(0, `hsla(${hue}, 100%, 74%, ${alpha})`)
+          link.addColorStop(0.65, `hsla(${Math.min(72, hue + 12)}, 100%, 82%, ${alpha * 0.55})`)
+          link.addColorStop(1, "rgba(255, 255, 255, 0)")
+          trailContext.beginPath()
+          trailContext.moveTo(psx, psy)
+          trailContext.lineTo(wsx, wsy)
+          trailContext.strokeStyle = link
+          trailContext.lineWidth = 0.8 + phase * 0.9
+          trailContext.stroke()
         }
       }
       if (showOriginConnections && dynamicInvariants.length > 0) {
@@ -798,6 +833,7 @@ export default function Canvas({
         const worldAge = Math.max(0, sim.globals.tick - entry.birthTick)
         const totalHistory = Math.max(1, historyLastIndex)
         const energyNorm = Math.max(0, Math.min(1, inv.energy / 25))
+        const ignition = worldFlameInfluence.get(inv.id) ?? 0
 
         let prevIndex = 0
         let prev = history[0]
@@ -819,6 +855,11 @@ export default function Canvas({
             const fireHue = 10 + (1 - segAgeNorm) * 12 + energyNorm * 32
             const alpha = 0.03 + fade * 0.34
             stroke = `hsla(${fireHue}, 98%, ${56 + (1 - segAgeNorm) * 12}%, ${alpha})`
+          } else if (heliosLatticeActive && ignition > 0.04) {
+            const flow = 0.5 + 0.5 * Math.sin(segProgress * 8 + sim.globals.time * 3.2 + worldAge * 0.012)
+            const hue = 12 + energyNorm * 28 + ignition * 18 + flow * 8
+            const alpha = 0.03 + fade * (0.12 + ignition * 0.24)
+            stroke = `hsla(${hue}, 100%, ${58 + flow * 18}%, ${alpha})`
           } else {
             const alpha = 0.03 + fade * 0.28
             stroke = `rgba(255, 255, 255, ${alpha})`
@@ -850,6 +891,11 @@ export default function Canvas({
             const fireHue = 10 + (1 - segAgeNorm) * 12 + energyNorm * 32
             const alpha = 0.03 + fade * 0.34
             stroke = `hsla(${fireHue}, 98%, ${56 + (1 - segAgeNorm) * 12}%, ${alpha})`
+          } else if (heliosLatticeActive && ignition > 0.04) {
+            const flow = 0.5 + 0.5 * Math.sin(segProgress * 8 + sim.globals.time * 3.2 + worldAge * 0.012)
+            const hue = 12 + energyNorm * 28 + ignition * 18 + flow * 8
+            const alpha = 0.03 + fade * (0.12 + ignition * 0.24)
+            stroke = `hsla(${hue}, 100%, ${58 + flow * 18}%, ${alpha})`
           } else {
             const alpha = 0.03 + fade * 0.28
             stroke = `rgba(255, 255, 255, ${alpha})`
@@ -880,6 +926,7 @@ export default function Canvas({
         const breath = 0.5 + 0.5 * Math.sin(sim.globals.time * 2.2 + age * 0.045)
         const radius = 3 + inv.stability * 3 + energyNorm * 3 + breath * 1.4
         const lineWidth = 1 + ageNorm * 2.3
+        const ignition = worldFlameInfluence.get(inv.id) ?? 0
         const style = worldStyleFor(inv)
         const shellFill = style.shellFill
         const ringStroke = style.ringStroke
