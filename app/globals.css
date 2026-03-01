@@ -10,6 +10,10 @@ body {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
+html {
+  font-size: clamp(14px, 0.45vw + 12px, 18px);
+}
+
 * {
   box-sizing: border-box;
 }
